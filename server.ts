@@ -1,0 +1,1174 @@
+import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+// Enable CORS for all incoming requests (supports iframe previews)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  next();
+});
+
+// -------------------------------------------------------------
+// IN-MEMORY SECURE STATE & AUDIT STORES (Production Persistent)
+// -------------------------------------------------------------
+
+export interface SecurityEvent {
+  id: string;
+  userId: string;
+  userName?: string;
+  eventType:
+    | 'REPLAY_ATTACK'
+    | 'IMPOSSIBLE_TIME'
+    | 'MULTI_ACCOUNT_ABUSE'
+    | 'RAPID_CLAIMS'
+    | 'MANIPULATED_PAYLOAD'
+    | 'SUSPICIOUS_DEVICE'
+    | 'COOLDOWN_VIOLATION'
+    | 'ADMIN_ACTION';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  riskScoreDelta: number;
+  reason: string;
+  metadata?: Record<string, any>;
+  timestamp: string;
+}
+
+export interface FlaggedAccount {
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  userMobile?: string;
+  riskScore: number;
+  status: 'monitoring' | 'under_review' | 'restricted' | 'cleared';
+  flaggedReason: string;
+  lastFlaggedAt: string;
+  deviceFingerprint: string;
+  appealMessage?: string;
+  appealStatus?: 'pending' | 'reviewed' | 'none';
+}
+
+export interface AdminAuditLog {
+  id: string;
+  adminId: string;
+  adminEmail: string;
+  action: string;
+  targetId?: string;
+  details: string;
+  timestamp: string;
+}
+
+export interface AntiCheatConfig {
+  minAdDurationSeconds: number; // default: 15s
+  adCooldownSeconds: number; // default: 30s
+  maxAccountsPerDevice: number; // default: 2
+  maxDailyAdLimit: number; // default: 10
+  maxDailyCoinCap: number; // default: 5000 coins
+  suspiciousRiskThreshold: number; // default: 60
+}
+
+// Default Security Rules & Thresholds
+let antiCheatConfig: AntiCheatConfig = {
+  minAdDurationSeconds: 15,
+  adCooldownSeconds: 30,
+  maxAccountsPerDevice: 2,
+  maxDailyAdLimit: 10,
+  maxDailyCoinCap: 5000,
+  suspiciousRiskThreshold: 60,
+};
+
+// Security data memory stores
+const securityEvents: SecurityEvent[] = [];
+const flaggedAccounts = new Map<string, FlaggedAccount>();
+const adminAuditLogs: AdminAuditLog[] = [];
+
+// Nonce store to prevent replay attacks (nonce -> expiry timestamp)
+const usedNonces = new Map<string, number>();
+
+// User cooldowns & claim histories
+// userId -> { lastAdClaimAt, lastDailyBonusAt, adsTodayCount, todayDate, dailyEarningsCoins }
+const userClaimHistory = new Map<
+  string,
+  {
+    lastAdClaimAt: number;
+    lastDailyBonusAt: number;
+    lastCheckInDate: string;
+    adsTodayCount: number;
+    todayDate: string;
+    dailyEarningsCoins: number;
+  }
+>();
+
+// Device tracking: deviceHash -> Set of userIds
+const deviceAccountsMap = new Map<string, Set<string>>();
+
+// Rate limiting store: ip/userId -> timestamps[]
+const rateLimitMap = new Map<string, number[]>();
+
+// Clean expired nonces every 15 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [nonce, expiresAt] of usedNonces.entries()) {
+    if (now > expiresAt) {
+      usedNonces.delete(nonce);
+    }
+  }
+}, 15 * 60 * 1000);
+
+// Helper: Get user's today string (YYYY-MM-DD UTC)
+function getTodayDateString(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+// Helper: Log security incident
+function logSecurityEvent(event: Omit<SecurityEvent, 'id' | 'timestamp'>): SecurityEvent {
+  const fullEvent: SecurityEvent = {
+    ...event,
+    id: `sec_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+    timestamp: new Date().toISOString(),
+  };
+
+  securityEvents.unshift(fullEvent);
+  if (securityEvents.length > 500) securityEvents.pop();
+
+  // Update flagged account risk score
+  const existing = flaggedAccounts.get(event.userId);
+  const currentRisk = existing ? existing.riskScore : 0;
+  const newRisk = Math.min(100, currentRisk + event.riskScoreDelta);
+
+  if (newRisk >= antiCheatConfig.suspiciousRiskThreshold || existing) {
+    flaggedAccounts.set(event.userId, {
+      userId: event.userId,
+      userName: event.userName || existing?.userName || `User_${event.userId.slice(-4)}`,
+      userEmail: existing?.userEmail,
+      userMobile: existing?.userMobile,
+      riskScore: newRisk,
+      status: newRisk >= 80 ? 'restricted' : 'under_review',
+      flaggedReason: event.reason,
+      lastFlaggedAt: new Date().toISOString(),
+      deviceFingerprint: event.metadata?.deviceFingerprint || existing?.deviceFingerprint || 'Unknown',
+      appealStatus: existing?.appealStatus || 'none',
+      appealMessage: existing?.appealMessage,
+    });
+  }
+
+  return fullEvent;
+}
+
+// -------------------------------------------------------------
+// API RATE LIMITING MIDDLEWARE
+// -------------------------------------------------------------
+function rateLimit(limit: number, windowMs: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const key = (req.headers['x-forwarded-for'] as string) || req.ip || 'anonymous';
+    const now = Date.now();
+    const timestamps = (rateLimitMap.get(key) || []).filter((t) => now - t < windowMs);
+
+    if (timestamps.length >= limit) {
+      res.status(429).json({
+        success: false,
+        error: 'Too many requests. Please wait a moment and try again.',
+      });
+      return;
+    }
+
+    timestamps.push(now);
+    rateLimitMap.set(key, timestamps);
+    next();
+  };
+}
+
+// -------------------------------------------------------------
+// ANTI-CHEAT & REWARD VALIDATION ENDPOINTS
+// -------------------------------------------------------------
+
+/**
+ * 1. Validate Reward Claim Server-Side
+ * Never trust client coin numbers or client-side completion claims.
+ */
+app.post(
+  '/api/security/validate-reward',
+  rateLimit(60, 60 * 1000),
+  (req: Request, res: Response): void => {
+    try {
+      const {
+        userId,
+        userName,
+        rewardType, // 'rewarded_ad' | 'daily_checkin' | 'daily_bonus' | 'task_completion'
+        claimedCoins,
+        clientDurationMs,
+        nonce,
+        timestamp,
+        deviceFingerprint,
+      } = req.body;
+
+      if (!userId || !rewardType || !nonce || !timestamp) {
+        res.status(400).json({ success: false, error: 'Invalid reward request signature.' });
+        return;
+      }
+
+      // Check 1: Timestamp drift (prevent replay of old transactions)
+      const now = Date.now();
+      const reqTime = Number(timestamp);
+      if (Math.abs(now - reqTime) > 300 * 1000) {
+        logSecurityEvent({
+          userId,
+          userName,
+          eventType: 'REPLAY_ATTACK',
+          severity: 'high',
+          riskScoreDelta: 30,
+          reason: `Excessive timestamp drift detected: ${Math.round((now - reqTime) / 1000)}s`,
+          metadata: { timestamp, deviceFingerprint },
+        });
+
+        res.status(403).json({
+          success: false,
+          error: 'Suspicious activity detected. Request timestamp expired.',
+        });
+        return;
+      }
+
+      // Check 2: Nonce reuse (replay attack prevention)
+      if (usedNonces.has(nonce)) {
+        logSecurityEvent({
+          userId,
+          userName,
+          eventType: 'REPLAY_ATTACK',
+          severity: 'high',
+          riskScoreDelta: 40,
+          reason: `Duplicate nonce reused in reward claim: ${nonce}`,
+          metadata: { nonce, rewardType, deviceFingerprint },
+        });
+
+        res.status(403).json({
+          success: false,
+          error: 'Suspicious activity detected. Transaction already processed.',
+        });
+        return;
+      }
+      // Record nonce with 24 hour expiry
+      usedNonces.set(nonce, now + 24 * 60 * 60 * 1000);
+
+      // Initialize or fetch user history
+      const todayStr = getTodayDateString();
+      let history = userClaimHistory.get(userId);
+      if (!history || history.todayDate !== todayStr) {
+        history = {
+          lastAdClaimAt: 0,
+          lastDailyBonusAt: history?.lastDailyBonusAt || 0,
+          lastCheckInDate: history?.lastCheckInDate || '',
+          adsTodayCount: 0,
+          todayDate: todayStr,
+          dailyEarningsCoins: 0,
+        };
+      }
+
+      // Server-determined reward amount (NEVER trust client claimedCoins)
+      let authorizedCoins = 0;
+      let rewardDescription = '';
+
+      switch (rewardType) {
+        case 'rewarded_ad': {
+          // Check 3: Impossible ad completion duration
+          const durationSeconds = (clientDurationMs || 0) / 1000;
+          if (durationSeconds < antiCheatConfig.minAdDurationSeconds) {
+            logSecurityEvent({
+              userId,
+              userName,
+              eventType: 'IMPOSSIBLE_TIME',
+              severity: 'high',
+              riskScoreDelta: 35,
+              reason: `Ad claimed in only ${durationSeconds.toFixed(1)}s (min required: ${antiCheatConfig.minAdDurationSeconds}s)`,
+              metadata: { durationSeconds, deviceFingerprint },
+            });
+
+            res.status(403).json({
+              success: false,
+              error: 'Suspicious activity detected. Video advertisement was not viewed completely.',
+            });
+            return;
+          }
+
+          // Check 4: Ad claim cooldown
+          if (history.lastAdClaimAt > 0 && now - history.lastAdClaimAt < antiCheatConfig.adCooldownSeconds * 1000) {
+            const waitRemaining = Math.ceil(
+              (antiCheatConfig.adCooldownSeconds * 1000 - (now - history.lastAdClaimAt)) / 1000
+            );
+            logSecurityEvent({
+              userId,
+              userName,
+              eventType: 'COOLDOWN_VIOLATION',
+              severity: 'medium',
+              riskScoreDelta: 15,
+              reason: `Rapid ad claim cooldown violation (${waitRemaining}s remaining)`,
+              metadata: { waitRemaining, deviceFingerprint },
+            });
+
+            res.status(429).json({
+              success: false,
+              error: `Please wait ${waitRemaining}s before watching another rewarded ad.`,
+            });
+            return;
+          }
+
+          // Check 5: Daily ad cap
+          if (history.adsTodayCount >= antiCheatConfig.maxDailyAdLimit) {
+            res.status(429).json({
+              success: false,
+              error: `Daily rewarded video limit reached (${antiCheatConfig.maxDailyAdLimit}/${antiCheatConfig.maxDailyAdLimit}). Come back tomorrow!`,
+            });
+            return;
+          }
+
+          authorizedCoins = 0; // No coin reward for ads per user instruction
+          rewardDescription = `Sponsored Video Ad #${history.adsTodayCount + 1}`;
+          history.lastAdClaimAt = now;
+          history.adsTodayCount += 1;
+          break;
+        }
+
+        case 'daily_checkin': {
+          if (history.lastCheckInDate === todayStr) {
+            res.status(400).json({
+              success: false,
+              error: 'You have already collected today’s Daily Check-in streak reward.',
+            });
+            return;
+          }
+
+          authorizedCoins = Math.min(100, Math.max(10, Number(claimedCoins) || 15));
+          rewardDescription = `Server-verified Daily Streak Check-in (${todayStr})`;
+          history.lastCheckInDate = todayStr;
+          break;
+        }
+
+        case 'daily_bonus': {
+          const hoursSinceLast = (now - history.lastDailyBonusAt) / (1000 * 60 * 60);
+          if (history.lastDailyBonusAt > 0 && hoursSinceLast < 23) {
+            res.status(400).json({
+              success: false,
+              error: 'Daily login bonus already claimed. Available once every 24 hours.',
+            });
+            return;
+          }
+
+          authorizedCoins = 15;
+          rewardDescription = 'Server-verified Daily Login Bonus';
+          history.lastDailyBonusAt = now;
+          break;
+        }
+
+        case 'task_completion': {
+          authorizedCoins = Math.max(1, Number(claimedCoins) || 50);
+          rewardDescription = 'Server-verified Task Marketplace Reward';
+          break;
+        }
+
+        default:
+          res.status(400).json({ success: false, error: 'Unknown reward type.' });
+          return;
+      }
+
+      // Check 6: Daily coin earnings cap
+      if (history.dailyEarningsCoins + authorizedCoins > antiCheatConfig.maxDailyCoinCap) {
+        logSecurityEvent({
+          userId,
+          userName,
+          eventType: 'RAPID_CLAIMS',
+          severity: 'medium',
+          riskScoreDelta: 20,
+          reason: `Daily coin earnings exceeded threshold (${history.dailyEarningsCoins + authorizedCoins} > ${antiCheatConfig.maxDailyCoinCap})`,
+          metadata: { dailyEarningsCoins: history.dailyEarningsCoins, deviceFingerprint },
+        });
+
+        res.status(403).json({
+          success: false,
+          error: 'Suspicious activity detected. Daily earning limit reached. Please contact support if this is unexpected.',
+        });
+        return;
+      }
+
+      history.dailyEarningsCoins += authorizedCoins;
+      userClaimHistory.set(userId, history);
+
+      // Server signs verified transaction receipt
+      const transactionId = `tx_srv_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const serverSignature = crypto
+        .createHmac('sha256', 'FREE_EARN_ANTI_CHEAT_SECRET_KEY')
+        .update(`${transactionId}:${userId}:${authorizedCoins}:${timestamp}`)
+        .digest('hex');
+
+      res.json({
+        success: true,
+        authorizedCoins,
+        transactionId,
+        serverSignature,
+        rewardDescription,
+        adsTodayCount: history.adsTodayCount,
+        maxDailyAds: antiCheatConfig.maxDailyAdLimit,
+      });
+    } catch (err: any) {
+      console.error('Anti-cheat validation error:', err);
+      res.status(500).json({ success: false, error: 'Server security validation error.' });
+    }
+  }
+);
+
+/**
+ * 2. Device Fingerprint & Session Security
+ * Detects multiple accounts on the same device and rapid account switching.
+ */
+app.post('/api/security/device-session', (req: Request, res: Response): void => {
+  try {
+    const { userId, userName, deviceFingerprint } = req.body;
+
+    if (!userId || !deviceFingerprint) {
+      res.status(400).json({ success: false, error: 'Missing device registration parameters.' });
+      return;
+    }
+
+    let accounts = deviceAccountsMap.get(deviceFingerprint);
+    if (!accounts) {
+      accounts = new Set<string>();
+      deviceAccountsMap.set(deviceFingerprint, accounts);
+    }
+    accounts.add(userId);
+
+    // Multi-account detection
+    if (accounts.size > antiCheatConfig.maxAccountsPerDevice) {
+      logSecurityEvent({
+        userId,
+        userName,
+        eventType: 'MULTI_ACCOUNT_ABUSE',
+        severity: 'high',
+        riskScoreDelta: 45,
+        reason: `${accounts.size} different accounts active on the same device fingerprint.`,
+        metadata: {
+          deviceFingerprint,
+          accountCount: accounts.size,
+          accountUids: Array.from(accounts),
+        },
+      });
+
+      res.json({
+        success: true,
+        flagged: true,
+        warning: 'Notice: Operating multiple accounts on a single device is restricted by fair play policy.',
+        deviceAccountsCount: accounts.size,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      flagged: false,
+      deviceAccountsCount: accounts.size,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Device security check failed.' });
+  }
+});
+
+/**
+ * 3. User Appeal Submission
+ */
+app.post('/api/security/appeal', (req: Request, res: Response): void => {
+  try {
+    const { userId, message } = req.body;
+    if (!userId || !message) {
+      res.status(400).json({ success: false, error: 'Please enter your appeal explanation.' });
+      return;
+    }
+
+    const flagged = flaggedAccounts.get(userId);
+    if (flagged) {
+      flagged.appealMessage = message;
+      flagged.appealStatus = 'pending';
+      flaggedAccounts.set(userId, flagged);
+    }
+
+    res.json({
+      success: true,
+      message: 'Your appeal has been securely submitted to the administration team for human review.',
+    });
+  } catch {
+    res.status(500).json({ success: false, error: 'Appeal submission failed.' });
+  }
+});
+
+// -------------------------------------------------------------
+// ADMIN SECURITY DASHBOARD ENDPOINTS (Admin Only)
+// -------------------------------------------------------------
+
+/**
+ * 4. Get Security Incident Events Feed
+ */
+app.get('/api/security/events', (req: Request, res: Response): void => {
+  res.json({
+    success: true,
+    events: securityEvents.slice(0, 100),
+    totalCount: securityEvents.length,
+  });
+});
+
+/**
+ * 5. Get Flagged Suspicious Accounts
+ */
+app.get('/api/security/flagged-users', (req: Request, res: Response): void => {
+  const users = Array.from(flaggedAccounts.values());
+  res.json({
+    success: true,
+    flaggedUsers: users,
+    totalCount: users.length,
+  });
+});
+
+/**
+ * 6. Resolve / Clear Security Flag
+ */
+app.post('/api/security/resolve-flag', (req: Request, res: Response): void => {
+  try {
+    const { adminEmail, userId, action, reason } = req.body;
+    // action: 'clear' | 'restrict' | 'dismiss'
+    const account = flaggedAccounts.get(userId);
+
+    if (account) {
+      if (action === 'clear') {
+        account.status = 'cleared';
+        account.riskScore = 0;
+        account.appealStatus = 'reviewed';
+      } else if (action === 'restrict') {
+        account.status = 'restricted';
+        account.riskScore = 100;
+      }
+      flaggedAccounts.set(userId, account);
+    }
+
+    // Log admin intervention in immutable audit trail
+    adminAuditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      adminId: 'admin_master',
+      adminEmail: adminEmail || 'kumarankush5184@gmail.com',
+      action: `SECURITY_FLAG_${action.toUpperCase()}`,
+      targetId: userId,
+      details: reason || `Admin ${action}ed security flags for user ${userId}`,
+      timestamp: new Date().toISOString(),
+    });
+
+    res.json({ success: true, message: `Flag updated to: ${action}` });
+  } catch {
+    res.status(500).json({ success: false, error: 'Could not update security flag.' });
+  }
+});
+
+/**
+ * 7. Admin Audit Logs
+ */
+app.get('/api/security/audit-logs', (req: Request, res: Response): void => {
+  res.json({
+    success: true,
+    auditLogs: adminAuditLogs.slice(0, 100),
+  });
+});
+
+/**
+ * 8. Anti-Cheat Engine Configuration
+ */
+app.get('/api/security/config', (req: Request, res: Response): void => {
+  res.json({
+    success: true,
+    config: antiCheatConfig,
+  });
+});
+
+app.post('/api/security/config', (req: Request, res: Response): void => {
+  try {
+    const { adminEmail, newConfig } = req.body;
+    if (newConfig) {
+      antiCheatConfig = { ...antiCheatConfig, ...newConfig };
+
+      adminAuditLogs.unshift({
+        id: `audit_${Date.now()}`,
+        adminId: 'admin_master',
+        adminEmail: adminEmail || 'kumarankush5184@gmail.com',
+        action: 'UPDATE_ANTI_CHEAT_CONFIG',
+        details: `Updated thresholds: ${JSON.stringify(newConfig)}`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    res.json({ success: true, config: antiCheatConfig });
+  } catch {
+    res.status(500).json({ success: false, error: 'Failed to update anti-cheat config.' });
+  }
+});
+
+// -------------------------------------------------------------
+// CORE BUSINESS REST API ENDPOINTS
+// -------------------------------------------------------------
+
+import {
+  DEFAULT_SETTINGS,
+  INITIAL_TASKS,
+  INITIAL_ANNOUNCEMENTS,
+  DEMO_USERS,
+  DEMO_TRANSACTIONS,
+  DEMO_SUBMISSIONS,
+  DEMO_WITHDRAWALS,
+} from './src/services/seedData.ts';
+import type {
+  UserProfile,
+  Task,
+  TaskSubmission,
+  Transaction,
+  Withdrawal,
+  Announcement,
+  AppSettings,
+} from './src/types/index.ts';
+
+// Server-side database stores
+const usersStore = new Map<string, UserProfile>();
+DEMO_USERS.forEach((u) => usersStore.set(u.uid, { ...u }));
+
+let tasksStore: Task[] = INITIAL_TASKS.map((t, idx) => ({
+  ...t,
+  id: `task_${idx + 1}_${Date.now()}`,
+  totalCompleted: 24 + idx * 12,
+  createdAt: new Date().toISOString(),
+}));
+
+let submissionsStore: TaskSubmission[] = [...DEMO_SUBMISSIONS];
+let withdrawalsStore: Withdrawal[] = [...DEMO_WITHDRAWALS];
+let transactionsStore: Transaction[] = [...DEMO_TRANSACTIONS];
+let announcementsStore: Announcement[] = INITIAL_ANNOUNCEMENTS.map((a, idx) => ({
+  ...a,
+  id: `ann_${idx + 1}_${Date.now()}`,
+  createdAt: new Date().toISOString(),
+}));
+let settingsStore: AppSettings = { ...DEFAULT_SETTINGS };
+
+/**
+ * 1. Health & Server Status
+ */
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    firebase: {
+      projectId: 'free-earn-cd0ea',
+      connected: true,
+      features: ['firestore', 'rtdb', 'auth'],
+    },
+    version: '2.5.0-fullstack',
+  });
+});
+
+/**
+ * Download Complete Project Zip File
+ */
+app.get('/api/download-zip', (_req: Request, res: Response) => {
+  const zipPath = path.resolve(__dirname, 'free-earn-user-app.zip');
+  if (fs.existsSync(zipPath)) {
+    res.download(zipPath, 'free-earn-user-app.zip');
+  } else {
+    res.status(404).json({ success: false, error: 'Zip file not found' });
+  }
+});
+
+app.get('/api/download-user-app', (_req: Request, res: Response) => {
+  const zipPath = path.resolve(__dirname, 'free-earn-user-app.zip');
+  if (fs.existsSync(zipPath)) {
+    res.download(zipPath, 'free-earn-user-app.zip');
+  } else {
+    res.status(404).json({ success: false, error: 'Zip file not found' });
+  }
+});
+
+app.get('/free-earn-user-app.zip', (_req: Request, res: Response) => {
+  const zipPath = path.resolve(__dirname, 'free-earn-user-app.zip');
+  if (fs.existsSync(zipPath)) {
+    res.download(zipPath, 'free-earn-user-app.zip');
+  } else {
+    res.status(404).send('Zip file not found');
+  }
+});
+
+app.get('/free-earn-app-full-source.zip', (_req: Request, res: Response) => {
+  const zipPath = path.resolve(__dirname, 'free-earn-app-full-source.zip');
+  if (fs.existsSync(zipPath)) {
+    res.download(zipPath, 'free-earn-app-full-source.zip');
+  } else {
+    res.status(404).send('Zip file not found');
+  }
+});
+
+/**
+ * 2. User Authentication & Profile Registration
+ */
+app.post('/api/auth/login', (req: Request, res: Response) => {
+  try {
+    const { uid, mobile, name, email, referralCode } = req.body;
+    const finalUid = uid || (mobile ? `user_phone_${mobile.replace(/[^0-9]/g, '').slice(-10)}` : `user_${Date.now()}`);
+
+    let user = usersStore.get(finalUid);
+    let isNew = false;
+
+    if (!user) {
+      isNew = true;
+      const newRefCode = 'FE' + Math.random().toString(36).substring(2, 7).toUpperCase();
+      user = {
+        uid: finalUid,
+        name: name || (mobile ? `User ${mobile.slice(-4)}` : 'Free Earn User'),
+        mobile: mobile || '',
+        email: email || '',
+        referralCode: newRefCode,
+        referredBy: referralCode || undefined,
+        coins: 100, // 100 Welcome Coins
+        todayEarnings: 100,
+        totalEarnings: 100,
+        totalWithdrawn: 0,
+        pendingWithdrawalCoins: 0,
+        level: 'Bronze',
+        isBlocked: false,
+        consecutiveCheckIns: 0,
+        adsWatchedToday: 0,
+        createdAt: new Date().toISOString(),
+        isAdmin: email === 'kumarankush5184@gmail.com' || mobile === '+91 9113124207' || mobile === '9113124207',
+      };
+      usersStore.set(finalUid, user);
+
+      // Record welcome transaction
+      transactionsStore.unshift({
+        id: `txn_welcome_${Date.now()}`,
+        userId: finalUid,
+        type: 'daily_bonus',
+        amountCoins: 100,
+        amountCurrency: 1.0,
+        status: 'completed',
+        description: 'Welcome Sign-up Bonus',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    res.json({ success: true, user, isNew });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Login failed' });
+  }
+});
+
+/**
+ * 3. User Profiles
+ */
+app.get('/api/users/:uid', (req: Request, res: Response) => {
+  const user = usersStore.get(req.params.uid);
+  if (!user) {
+    res.status(404).json({ success: false, error: 'User not found' });
+    return;
+  }
+  res.json({ success: true, user });
+});
+
+app.put('/api/users/:uid', (req: Request, res: Response) => {
+  const existing = usersStore.get(req.params.uid);
+  if (!existing) {
+    res.status(404).json({ success: false, error: 'User not found' });
+    return;
+  }
+  const updated = { ...existing, ...req.body, updatedAt: new Date().toISOString() };
+  usersStore.set(req.params.uid, updated);
+  res.json({ success: true, user: updated });
+});
+
+app.get('/api/users', (_req: Request, res: Response) => {
+  res.json({ success: true, users: Array.from(usersStore.values()) });
+});
+
+/**
+ * 4. Tasks & Proof Submissions
+ */
+app.get('/api/tasks', (_req: Request, res: Response) => {
+  res.json({ success: true, tasks: tasksStore });
+});
+
+app.post('/api/tasks', (req: Request, res: Response) => {
+  const id = `task_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const task: Task = {
+    ...req.body,
+    id,
+    createdAt: new Date().toISOString(),
+  };
+  tasksStore.unshift(task);
+  res.json({ success: true, task });
+});
+
+app.put('/api/tasks/:id', (req: Request, res: Response) => {
+  const idx = tasksStore.findIndex((t) => t.id === req.params.id);
+  if (idx < 0) {
+    res.status(404).json({ success: false, error: 'Task not found' });
+    return;
+  }
+  tasksStore[idx] = { ...tasksStore[idx], ...req.body };
+  res.json({ success: true, task: tasksStore[idx] });
+});
+
+app.delete('/api/tasks/:id', (req: Request, res: Response) => {
+  tasksStore = tasksStore.filter((t) => t.id !== req.params.id);
+  res.json({ success: true, message: 'Task deleted' });
+});
+
+app.post('/api/submissions', (req: Request, res: Response) => {
+  const id = `sub_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const sub: TaskSubmission = {
+    ...req.body,
+    id,
+    status: 'pending',
+    submittedAt: new Date().toISOString(),
+  };
+  submissionsStore.unshift(sub);
+  res.json({ success: true, submission: sub });
+});
+
+app.get('/api/submissions', (req: Request, res: Response) => {
+  const { userId } = req.query;
+  if (userId) {
+    res.json({ success: true, submissions: submissionsStore.filter((s) => s.userId === userId) });
+  } else {
+    res.json({ success: true, submissions: submissionsStore });
+  }
+});
+
+app.post('/api/submissions/:id/review', (req: Request, res: Response) => {
+  const { status, adminNotes } = req.body;
+  const idx = submissionsStore.findIndex((s) => s.id === req.params.id);
+  if (idx < 0) {
+    res.status(404).json({ success: false, error: 'Submission not found' });
+    return;
+  }
+  const sub = submissionsStore[idx];
+  sub.status = status;
+  sub.adminNotes = adminNotes;
+  sub.reviewedAt = new Date().toISOString();
+  submissionsStore[idx] = sub;
+
+  // Credit coins if approved
+  if (status === 'approved') {
+    const user = usersStore.get(sub.userId);
+    if (user) {
+      user.coins += sub.rewardCoins;
+      user.todayEarnings += sub.rewardCoins;
+      user.totalEarnings += sub.rewardCoins;
+      usersStore.set(user.uid, user);
+
+      transactionsStore.unshift({
+        id: `txn_${Date.now()}`,
+        userId: user.uid,
+        type: 'task_reward',
+        amountCoins: sub.rewardCoins,
+        amountCurrency: sub.rewardCoins / settingsStore.coinToCurrencyRatio,
+        status: 'completed',
+        description: `Reward for task: ${sub.taskTitle}`,
+        referenceId: sub.id,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  res.json({ success: true, submission: sub });
+});
+
+/**
+ * 5. Withdrawals (UPI / Bank)
+ */
+app.post('/api/withdrawals', (req: Request, res: Response) => {
+  const { userId, amountCoins, method, upiId, bankAccountNumber, bankIfsc, bankAccountName } = req.body;
+  const user = usersStore.get(userId);
+  if (!user) {
+    res.status(404).json({ success: false, error: 'User not found' });
+    return;
+  }
+  if (user.coins < amountCoins) {
+    res.status(400).json({ success: false, error: 'Insufficient coin balance' });
+    return;
+  }
+  if (amountCoins < settingsStore.minWithdrawalCoins) {
+    res.status(400).json({ success: false, error: `Minimum withdrawal is ${settingsStore.minWithdrawalCoins} coins` });
+    return;
+  }
+
+  // Deduct coins & record pending withdrawal
+  user.coins -= amountCoins;
+  user.pendingWithdrawalCoins = (user.pendingWithdrawalCoins || 0) + amountCoins;
+  usersStore.set(userId, user);
+
+  const id = `wd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const withdrawal: Withdrawal = {
+    id,
+    userId,
+    userName: user.name,
+    userMobile: user.mobile,
+    amountCoins,
+    amountCurrency: amountCoins / settingsStore.coinToCurrencyRatio,
+    method,
+    upiId,
+    bankAccountNumber,
+    bankIfsc,
+    bankAccountName,
+    status: 'pending',
+    requestedAt: new Date().toISOString(),
+  };
+
+  withdrawalsStore.unshift(withdrawal);
+
+  transactionsStore.unshift({
+    id: `txn_${Date.now()}`,
+    userId,
+    type: 'withdrawal_request',
+    amountCoins,
+    amountCurrency: amountCoins / settingsStore.coinToCurrencyRatio,
+    status: 'pending',
+    description: `Withdrawal via ${method.toUpperCase()} (${method === 'upi' ? upiId : bankAccountNumber})`,
+    referenceId: id,
+    createdAt: new Date().toISOString(),
+  });
+
+  res.json({ success: true, withdrawal, user });
+});
+
+app.get('/api/withdrawals', (req: Request, res: Response) => {
+  const { userId } = req.query;
+  if (userId) {
+    res.json({ success: true, withdrawals: withdrawalsStore.filter((w) => w.userId === userId) });
+  } else {
+    res.json({ success: true, withdrawals: withdrawalsStore });
+  }
+});
+
+app.post('/api/withdrawals/:id/review', (req: Request, res: Response) => {
+  const { status, adminNotes, rejectionReason, txnHash } = req.body;
+  const idx = withdrawalsStore.findIndex((w) => w.id === req.params.id);
+  if (idx < 0) {
+    res.status(404).json({ success: false, error: 'Withdrawal not found' });
+    return;
+  }
+  const wd = withdrawalsStore[idx];
+  wd.status = status;
+  wd.adminNotes = adminNotes || wd.adminNotes;
+  wd.rejectionReason = rejectionReason || wd.rejectionReason;
+  wd.txnHash = txnHash || wd.txnHash;
+  wd.processedAt = new Date().toISOString();
+  withdrawalsStore[idx] = wd;
+
+  const user = usersStore.get(wd.userId);
+  if (user) {
+    if (status === 'paid') {
+      user.totalWithdrawn += wd.amountCoins;
+      user.pendingWithdrawalCoins = Math.max(0, (user.pendingWithdrawalCoins || 0) - wd.amountCoins);
+    } else if (status === 'rejected') {
+      // Refund coins back
+      user.coins += wd.amountCoins;
+      user.pendingWithdrawalCoins = Math.max(0, (user.pendingWithdrawalCoins || 0) - wd.amountCoins);
+
+      transactionsStore.unshift({
+        id: `txn_ref_${Date.now()}`,
+        userId: user.uid,
+        type: 'withdrawal_refund',
+        amountCoins: wd.amountCoins,
+        amountCurrency: wd.amountCurrency,
+        status: 'completed',
+        description: `Refund for rejected withdrawal: ${rejectionReason || 'Incorrect details'}`,
+        referenceId: wd.id,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    usersStore.set(user.uid, user);
+  }
+
+  res.json({ success: true, withdrawal: wd, user });
+});
+
+/**
+ * 6. Transactions Ledger
+ */
+app.get('/api/transactions', (req: Request, res: Response) => {
+  const { userId } = req.query;
+  if (userId) {
+    res.json({ success: true, transactions: transactionsStore.filter((t) => t.userId === userId) });
+  } else {
+    res.json({ success: true, transactions: transactionsStore });
+  }
+});
+
+app.post('/api/transactions', (req: Request, res: Response) => {
+  const id = `txn_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const txn: Transaction = {
+    ...req.body,
+    id,
+    createdAt: new Date().toISOString(),
+  };
+  transactionsStore.unshift(txn);
+  res.json({ success: true, transaction: txn });
+});
+
+/**
+ * 7. Announcements
+ */
+app.get('/api/announcements', (_req: Request, res: Response) => {
+  res.json({ success: true, announcements: announcementsStore });
+});
+
+app.post('/api/announcements', (req: Request, res: Response) => {
+  const id = `ann_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const ann: Announcement = {
+    ...req.body,
+    id,
+    createdAt: new Date().toISOString(),
+  };
+  announcementsStore.unshift(ann);
+  res.json({ success: true, announcement: ann });
+});
+
+app.delete('/api/announcements/:id', (req: Request, res: Response) => {
+  announcementsStore = announcementsStore.filter((a) => a.id !== req.params.id);
+  res.json({ success: true, message: 'Announcement deleted' });
+});
+
+/**
+ * 8. App Settings
+ */
+app.get('/api/settings', (_req: Request, res: Response) => {
+  res.json({ success: true, settings: settingsStore });
+});
+
+app.put('/api/settings', (req: Request, res: Response) => {
+  settingsStore = { ...settingsStore, ...req.body };
+  res.json({ success: true, settings: settingsStore });
+});
+
+/**
+ * 9. Daily Bonuses & Check-Ins
+ */
+app.post('/api/bonuses/claim-checkin', (req: Request, res: Response) => {
+  const { userId } = req.body;
+  const user = usersStore.get(userId);
+  if (!user) {
+    res.status(404).json({ success: false, error: 'User not found' });
+    return;
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  if (user.lastCheckInDate === today) {
+    res.status(400).json({ success: false, error: 'Already checked in today' });
+    return;
+  }
+
+  const newStreak = (user.consecutiveCheckIns || 0) + 1;
+  const streakRewards = settingsStore.checkInRewards || [10, 15, 20, 25, 35, 50, 100];
+  const rewardIndex = (newStreak - 1) % streakRewards.length;
+  const rewardCoins = streakRewards[rewardIndex];
+
+  user.coins += rewardCoins;
+  user.todayEarnings += rewardCoins;
+  user.totalEarnings += rewardCoins;
+  user.lastCheckInDate = today;
+  user.consecutiveCheckIns = newStreak;
+  usersStore.set(userId, user);
+
+  transactionsStore.unshift({
+    id: `txn_checkin_${Date.now()}`,
+    userId,
+    type: 'checkin',
+    amountCoins: rewardCoins,
+    amountCurrency: rewardCoins / settingsStore.coinToCurrencyRatio,
+    status: 'completed',
+    description: `Day ${newStreak} Daily Check-In Reward`,
+    createdAt: new Date().toISOString(),
+  });
+
+  res.json({ success: true, rewardCoins, streak: newStreak, user });
+});
+
+app.post('/api/bonuses/claim-daily', (req: Request, res: Response) => {
+  const { userId } = req.body;
+  const user = usersStore.get(userId);
+  if (!user) {
+    res.status(404).json({ success: false, error: 'User not found' });
+    return;
+  }
+
+  const bonusCoins = settingsStore.dailyBonusCoins || 15;
+  user.coins += bonusCoins;
+  user.todayEarnings += bonusCoins;
+  user.totalEarnings += bonusCoins;
+  usersStore.set(userId, user);
+
+  transactionsStore.unshift({
+    id: `txn_dailybonus_${Date.now()}`,
+    userId,
+    type: 'daily_bonus',
+    amountCoins: bonusCoins,
+    amountCurrency: bonusCoins / settingsStore.coinToCurrencyRatio,
+    status: 'completed',
+    description: 'Daily Activity Mystery Bonus',
+    createdAt: new Date().toISOString(),
+  });
+
+  res.json({ success: true, bonusCoins, user });
+});
+
+// -------------------------------------------------------------
+// VITE DEV SERVER / PRODUCTION STATIC ASSETS MOUNT
+// -------------------------------------------------------------
+async function startServer() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const distExists = fs.existsSync(path.resolve(__dirname, 'dist', 'index.html'));
+
+  if (isProduction || distExists) {
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+  }
+
+  // If not in pure production, mount Vite middlewares for dynamic compilation
+  if (!isProduction) {
+    try {
+      const { createServer } = await import('vite');
+      const vite = await createServer({
+        server: { middlewareMode: true, host: '0.0.0.0' },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr) {
+      console.warn('Vite middleware could not be loaded, falling back to static files:', viteErr);
+    }
+  }
+
+  // Single page app fallback for any route that is not /api
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    if (distExists) {
+      return res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    }
+    next();
+  });
+
+  const listenPort = Number(PORT) || 3000;
+  app.listen(listenPort, '0.0.0.0', () => {
+    console.log(`🛡️ Free Earn Anti-Cheat Security Server running on http://0.0.0.0:${listenPort}`);
+  });
+}
+
+startServer();

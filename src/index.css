@@ -1,0 +1,188 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* 3D Container & Perspective */
+.perspective-container {
+  perspective: 1000px;
+}
+
+/* 3D Glass & Isometric Cards */
+.card-3d {
+  background: linear-gradient(135deg, rgba(30, 27, 75, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  box-shadow: 
+    0 10px 30px -10px rgba(0, 0, 0, 0.7),
+    0 4px 6px -2px rgba(124, 58, 237, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.card-3d:hover {
+  transform: translateY(-4px) scale(1.01);
+  border-color: rgba(192, 132, 252, 0.5);
+  box-shadow: 
+    0 20px 35px -10px rgba(124, 58, 237, 0.35),
+    0 8px 12px -3px rgba(0, 0, 0, 0.6),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+
+/* 3D Tactile Push Buttons (Press down like real physical arcade buttons) */
+.btn-3d {
+  position: relative;
+  transition: all 0.12s ease;
+  transform-style: preserve-3d;
+  user-select: none;
+}
+
+.btn-3d:active {
+  transform: translateY(3px) !important;
+}
+
+.btn-3d-purple {
+  background: linear-gradient(180deg, #8b5cf6 0%, #6d28d9 100%);
+  border: 1px solid #a78bfa;
+  box-shadow: 
+    0 4px 0 #4c1d95,
+    0 8px 16px rgba(109, 40, 217, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.btn-3d-purple:active {
+  box-shadow: 
+    0 1px 0 #4c1d95,
+    0 3px 8px rgba(109, 40, 217, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+.btn-3d-emerald {
+  background: linear-gradient(180deg, #10b981 0%, #047857 100%);
+  border: 1px solid #34d399;
+  box-shadow: 
+    0 4px 0 #064e3b,
+    0 8px 16px rgba(16, 185, 129, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.btn-3d-emerald:active {
+  box-shadow: 
+    0 1px 0 #064e3b,
+    0 3px 8px rgba(16, 185, 129, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+.btn-3d-amber {
+  background: linear-gradient(180deg, #f59e0b 0%, #b45309 100%);
+  border: 1px solid #fcd34d;
+  box-shadow: 
+    0 4px 0 #78350f,
+    0 8px 16px rgba(245, 158, 11, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.btn-3d-amber:active {
+  box-shadow: 
+    0 1px 0 #78350f,
+    0 3px 8px rgba(245, 158, 11, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 3D Animated Gold Coin with realistic embossed rim */
+.coin-3d {
+  position: relative;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, #fef08a 0%, #eab308 55%, #a16207 100%);
+  box-shadow: 
+    0 4px 10px rgba(0, 0, 0, 0.4),
+    0 0 15px rgba(234, 179, 8, 0.4),
+    inset 0 2px 2px rgba(255, 255, 255, 0.7),
+    inset 0 -2px 3px rgba(113, 63, 18, 0.8);
+  border: 2px solid #ca8a04;
+}
+
+/* 3D Float Animation */
+@keyframes float3d {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(2deg);
+  }
+}
+
+.animate-float-3d {
+  animation: float3d 3.5s ease-in-out infinite;
+}
+
+/* 3D Coin Flip / Spin */
+@keyframes spin3d {
+  0% {
+    transform: perspective(400px) rotateY(0deg);
+  }
+  50% {
+    transform: perspective(400px) rotateY(180deg);
+  }
+  100% {
+    transform: perspective(400px) rotateY(360deg);
+  }
+}
+
+.animate-spin-3d {
+  animation: spin3d 6s linear infinite;
+}
+
+/* 3D Metallic Badge */
+.badge-3d {
+  box-shadow: 
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* Glassmorphism legacy support */
+.glass-card {
+  background: rgba(30, 27, 75, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.glass-card-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.glass-card-hover:hover {
+  transform: translateY(-3px);
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 14px 28px -5px rgba(124, 58, 237, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+}
+
+.gradient-purple-blue {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #d946ef 100%);
+}
+
+.gradient-dark-glow {
+  background: radial-gradient(circle at 50% 0%, rgba(124, 58, 237, 0.35) 0%, rgba(15, 23, 42, 0) 70%);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.5);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.8);
+}
+

@@ -1,0 +1,171 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with balance, earnings, and status in Free Earn",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 80 },
+        "mobile": { "type": "string", "maxLength": 20 },
+        "email": { "type": "string", "maxLength": 120 },
+        "referralCode": { "type": "string", "maxLength": 16 },
+        "referredBy": { "type": "string", "maxLength": 16 },
+        "coins": { "type": "number" },
+        "todayEarnings": { "type": "number" },
+        "totalEarnings": { "type": "number" },
+        "totalWithdrawn": { "type": "number" },
+        "pendingWithdrawalCoins": { "type": "number" },
+        "level": { "type": "string", "enum": ["Bronze", "Silver", "Gold", "Platinum", "Diamond"] },
+        "isBlocked": { "type": "boolean" },
+        "lastCheckInDate": { "type": "string", "maxLength": 30 },
+        "consecutiveCheckIns": { "type": "number" },
+        "lastAdWatchedAt": { "type": "string", "maxLength": 40 },
+        "adsWatchedToday": { "type": "number" },
+        "adsWatchedDate": { "type": "string", "maxLength": 30 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "name", "mobile", "coins"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Task created by admin for users to complete",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 500 },
+        "rewardCoins": { "type": "number" },
+        "category": { "type": "string", "enum": ["app", "survey", "social", "daily", "special"] },
+        "instructions": { "type": "string", "maxLength": 1000 },
+        "dailyLimit": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "paused", "completed"] },
+        "createdAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "title", "rewardCoins", "category", "status"]
+    },
+    "TaskSubmission": {
+      "title": "TaskSubmission",
+      "description": "User submission of a completed task with verification proof",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "taskId": { "type": "string", "maxLength": 128 },
+        "taskTitle": { "type": "string", "maxLength": 120 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 80 },
+        "rewardCoins": { "type": "number" },
+        "proofLink": { "type": "string", "maxLength": 500 },
+        "proofNotes": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "adminNotes": { "type": "string", "maxLength": 500 },
+        "submittedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "taskId", "userId", "status"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Immutable ledger record of coin credits and debits",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["checkin", "rewarded_ad", "task_reward", "referral_bonus", "daily_bonus", "withdrawal_request", "withdrawal_refund", "admin_adjustment"] },
+        "amountCoins": { "type": "number" },
+        "amountCurrency": { "type": "number" },
+        "status": { "type": "string", "enum": ["completed", "pending", "rejected", "paid"] },
+        "description": { "type": "string", "maxLength": 200 },
+        "referenceId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "userId", "type", "amountCoins", "status", "createdAt"]
+    },
+    "Withdrawal": {
+      "title": "Withdrawal",
+      "description": "User withdrawal request via UPI or Bank",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 80 },
+        "userMobile": { "type": "string", "maxLength": 20 },
+        "amountCoins": { "type": "number" },
+        "amountCurrency": { "type": "number" },
+        "method": { "type": "string", "enum": ["upi", "bank"] },
+        "upiId": { "type": "string", "maxLength": 100 },
+        "bankAccountNumber": { "type": "string", "maxLength": 50 },
+        "bankIfsc": { "type": "string", "maxLength": 30 },
+        "bankAccountName": { "type": "string", "maxLength": 80 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "paid"] },
+        "rejectionReason": { "type": "string", "maxLength": 300 },
+        "requestedAt": { "type": "string", "maxLength": 40 },
+        "processedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "userId", "amountCoins", "amountCurrency", "method", "status"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "System announcements posted by admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 120 },
+        "message": { "type": "string", "maxLength": 500 },
+        "badge": { "type": "string", "maxLength": 30 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "title", "message", "active"]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Global application configuration parameters",
+      "type": "object",
+      "properties": {
+        "minWithdrawalCoins": { "type": "number" },
+        "coinToCurrencyRatio": { "type": "number" },
+        "currencySymbol": { "type": "string", "maxLength": 10 },
+        "referralRewardCoins": { "type": "number" },
+        "referralJoinBonusCoins": { "type": "number" },
+        "dailyAdLimit": { "type": "number" },
+        "adRewardCoins": { "type": "number" },
+        "supportEmail": { "type": "string", "maxLength": 120 }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User private profile and balance state"
+    },
+    "/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Active tasks catalog created by administrators"
+    },
+    "/taskSubmissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/TaskSubmission" },
+      "description": "Task completion proofs submitted by users"
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Transaction log entries for user earnings and withdrawals"
+    },
+    "/withdrawals/{withdrawalId}": {
+      "schema": { "$ref": "#/entities/Withdrawal" },
+      "description": "Withdrawal requests queued for admin approval"
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Public announcements broadcast to users"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/Setting" },
+      "description": "App operational settings and threshold configuration"
+    },
+    "/admins/{adminId}": {
+      "schema": { "type": "object" },
+      "description": "Whitelisted admin users"
+    }
+  }
+}
