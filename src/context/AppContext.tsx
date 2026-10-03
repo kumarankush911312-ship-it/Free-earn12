@@ -34,6 +34,7 @@ import {
   createAnnouncement,
   deleteAnnouncement,
   recordReferral,
+  processReferralReward,
   getTodayDateString,
   generateReferralCode,
   generateId,
@@ -113,9 +114,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // User profile: initialized from stored session if present, otherwise null (requires Login/Register)
   const [user, setUser] = useState<UserProfile | null>(() => {
     try {
+      // If visiting via referral link, always show clean Register page
+      if (window.location.search.includes('ref=') || window.location.hash.includes('ref=')) {
+        localStorage.removeItem('freeearn_local_user');
+        return null;
+      }
+
+      // Clean up any stale/cached admin user profile from client storage
       const stored = localStorage.getItem('freeearn_local_user');
       if (stored) {
         const parsed = JSON.parse(stored);
+        if (
+          parsed &&
+          (parsed.uid === 'user_phone_9113124207' ||
+            parsed.mobile?.includes('9113124207') ||
+            parsed.name === 'Ankush Kumar' ||
+            parsed.email?.toLowerCase() === 'kumarankush5184@gmail.com')
+        ) {
+          localStorage.removeItem('freeearn_local_user');
+          return null;
+        }
         if (parsed && parsed.uid) return parsed;
       }
     } catch {}
@@ -248,6 +266,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       try {
         if (firebaseUser) {
+          // If the signed-in Firebase user is the app owner (admin email),
+          // do NOT auto-login to the regular user app! Sign out so Register / Login page shows.
+          const isAdminEmail = Boolean(firebaseUser.email && ADMIN_EMAILS.includes(firebaseUser.email.toLowerCase()));
+          const isAtAdminRoute = window.location.hash.includes('admin') || window.location.pathname.includes('admin');
+          
+          if (isAdminEmail && !isAtAdminRoute) {
+            await signOut(auth);
+            localStorage.removeItem('freeearn_local_user');
+            setUser(null);
+            return;
+          }
+
+          // If a referral link is being visited, always present a clean Register screen
+          if (window.location.search.includes('ref=') || window.location.hash.includes('ref=')) {
+            await signOut(auth);
+            localStorage.removeItem('freeearn_local_user');
+            setUser(null);
+            return;
+          }
+
           let profile = await getUserProfile(firebaseUser.uid);
           if (!profile) {
             // Create initial user profile
@@ -288,12 +326,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (stored) {
             try {
               const parsed = JSON.parse(stored) as UserProfile;
+              if (
+                parsed &&
+                (parsed.uid === 'user_phone_9113124207' ||
+                  parsed.mobile?.includes('9113124207') ||
+                  parsed.name === 'Ankush Kumar' ||
+                  parsed.email?.toLowerCase() === 'kumarankush5184@gmail.com')
+              ) {
+                localStorage.removeItem('freeearn_local_user');
+                setUser(null);
+                return;
+              }
               const updatedProfile = await getUserProfile(parsed.uid);
               const activeProfile = updatedProfile || parsed;
               setUser(activeProfile);
               loadUserData(activeProfile.uid).catch(() => {});
             } catch {
-              // keep existing user
+              setUser(null);
             }
           } else {
             // New visitor: DO NOT log in as anyone! Must show Register/Login screen.
@@ -399,6 +448,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         // Credit inviter if referred
         if (referredByCode) {
           try {
+            await processReferralReward(
+              referredByCode,
+              activeProfile.uid,
+              activeProfile.name,
+              activeProfile.mobile
+            );
             const referrer = allUsers.find(
               (u) => u.referralCode?.toUpperCase() === referredByCode
             );
@@ -499,15 +554,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       return { success: false, error: 'Google sign-in could not be completed.' };
     } catch (err: unknown) {
-      console.error('Google Sign-in error:', err);
+      console.warn('Google Sign-in notice (cross-origin / network / popup restriction):', err);
       const e = err as { code?: string; message?: string };
-      let msg = e?.message || 'Google Sign-in failed';
+      let msg = 'Google login unavailable due to browser/iframe restrictions. Kripya Mobile Number ya Email se Register karein!';
       if (e?.code === 'auth/popup-closed-by-user') {
-        msg = 'Google sign-in window was closed.';
+        msg = 'Google sign-in popup was closed.';
       } else if (e?.code === 'auth/popup-blocked') {
-        msg = 'Browser popup was blocked. Please enable popups or use Email & Password login.';
+        msg = 'Browser ne Google popup block kar diya. Kripya Mobile number ya Email se login karein.';
       } else if (e?.code === 'auth/operation-not-allowed') {
-        msg = 'Google provider is not enabled in Firebase Console. Please use Email & Password below.';
+        msg = 'Google provider is not enabled in Firebase Console. Kripya Mobile number ya Email se login karein.';
+      } else if (e?.code === 'auth/network-request-failed' || e?.code === 'auth/unauthorized-domain') {
+        msg = 'Google popup is browser me block hai (Iframe/Domain restriction). Kripya upar "Mobile OTP" ya "Register" tab use karein.';
+      } else if (e?.message) {
+        msg = e.message;
       }
       return { success: false, error: msg };
     }
@@ -671,6 +730,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Credit inviter if referred
       if (referredByCode) {
         try {
+          await processReferralReward(
+            referredByCode,
+            newProfile.uid,
+            newProfile.name,
+            newProfile.mobile
+          );
           const referrer = allUsers.find(
             (u) => u.referralCode?.toUpperCase() === referredByCode
           );

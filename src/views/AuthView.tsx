@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { sendMobileOtp, verifyMobileOtp } from '../services/api';
+import { OtpInput } from '../components/OtpInput';
 import {
   Sparkles,
   Phone,
@@ -12,6 +14,10 @@ import {
   CheckCircle2,
   TrendingUp,
   Award,
+  KeyRound,
+  RotateCcw,
+  Edit2,
+  Check,
 } from 'lucide-react';
 
 export const AuthView: React.FC = () => {
@@ -43,10 +49,22 @@ export const AuthView: React.FC = () => {
   // Mobile fast login state
   const [mobileOnly, setMobileOnly] = useState('');
   const [mobileName, setMobileName] = useState('');
+  const [otpStep, setOtpStep] = useState<'phone' | 'otp'>('phone');
+  const [otpInput, setOtpInput] = useState('');
+  const [otpCountdown, setOtpCountdown] = useState(0);
+  const [smsNotification, setSmsNotification] = useState<{ otp: string; phone: string } | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Countdown timer for Resend OTP
+  useEffect(() => {
+    if (otpCountdown > 0) {
+      const timer = setTimeout(() => setOtpCountdown((prev) => prev - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [otpCountdown]);
 
   useEffect(() => {
     // Check if referral in storage or URL
@@ -106,7 +124,8 @@ export const AuthView: React.FC = () => {
     }
   };
 
-  const handleMobileSubmit = async (e: React.FormEvent) => {
+  // Step 1: Send OTP to Phone
+  const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
@@ -118,6 +137,44 @@ export const AuthView: React.FC = () => {
     }
 
     setLoading(true);
+    const res = await sendMobileOtp(mobileOnly, mobileName);
+    setLoading(false);
+
+    if (res.success) {
+      setOtpStep('otp');
+      setOtpCountdown(30);
+      setSuccessMessage(`OTP sent to +91 ${clean.slice(-10)}!`);
+      if (res.otp) {
+        setSmsNotification({ otp: res.otp, phone: clean.slice(-10) });
+      }
+    } else {
+      setErrorMessage(res.error || 'OTP send failed. Kripya punah koshish karein.');
+    }
+  };
+
+  // Step 2: Verify OTP and Login
+  const handleVerifyAndLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    const clean = mobileOnly.replace(/[^0-9]/g, '');
+    const cleanOtp = otpInput.trim();
+
+    if (cleanOtp.length !== 6) {
+      setErrorMessage('Kripya 6-digit OTP code enter karein.');
+      return;
+    }
+
+    setLoading(true);
+    const verifyRes = await verifyMobileOtp(mobileOnly, cleanOtp);
+    if (!verifyRes.success) {
+      setLoading(false);
+      setErrorMessage(verifyRes.error || 'Galat OTP! Kripya check karke punah enter karein.');
+      return;
+    }
+
+    // OTP Verified! Log user in
     const res = await loginWithMobile(
       mobileName.trim() || `Earner ${clean.slice(-4)}`,
       mobileOnly,
@@ -126,9 +183,27 @@ export const AuthView: React.FC = () => {
     setLoading(false);
 
     if (res.success) {
-      setSuccessMessage('Login successful! Welcome.');
+      setSuccessMessage('OTP Verified! Welcome to Free Earn.');
     } else {
       setErrorMessage(res.error || 'Mobile login failed');
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (otpCountdown > 0) return;
+    setErrorMessage('');
+    setLoading(true);
+    const res = await sendMobileOtp(mobileOnly, mobileName);
+    setLoading(false);
+
+    if (res.success) {
+      setOtpCountdown(30);
+      setSuccessMessage('Naya OTP bhej diya gaya hai!');
+      if (res.otp) {
+        setSmsNotification({ otp: res.otp, phone: mobileOnly.replace(/[^0-9]/g, '').slice(-10) });
+      }
+    } else {
+      setErrorMessage(res.error || 'Resend failed.');
     }
   };
 
@@ -148,7 +223,7 @@ export const AuthView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 selection:bg-indigo-500 selection:text-white relative overflow-hidden">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 pt-8 pb-28 selection:bg-indigo-500 selection:text-white relative overflow-hidden">
       {/* Background Ambient Lighting */}
       <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-lg h-96 bg-gradient-to-b from-indigo-600/15 via-purple-600/10 to-transparent blur-3xl pointer-events-none" />
       <div className="fixed bottom-0 right-1/4 w-80 h-80 bg-pink-600/10 rounded-full blur-3xl pointer-events-none" />
@@ -231,8 +306,20 @@ export const AuthView: React.FC = () => {
 
         {/* Error / Success Messages */}
         {errorMessage && (
-          <div className="mb-4 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold">
-            {errorMessage}
+          <div className="mb-4 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold space-y-2">
+            <div>{errorMessage}</div>
+            {(errorMessage.toLowerCase().includes('google') || errorMessage.toLowerCase().includes('popup')) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('mobile');
+                  setErrorMessage('');
+                }}
+                className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition-all text-center block shadow-md"
+              >
+                👉 Use Fast Mobile Number Login
+              </button>
+            )}
           </div>
         )}
         {successMessage && (
@@ -389,70 +476,244 @@ export const AuthView: React.FC = () => {
           </form>
         )}
 
-        {/* TAB 3: Fast Mobile OTP Login */}
+        {/* TAB 3: Fast Mobile OTP Verification & Login */}
         {activeTab === 'mobile' && (
-          <form onSubmit={handleMobileSubmit} className="space-y-4">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-300 mb-1">Full Name</label>
-              <div className="relative">
-                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Apna Naam (e.g. Rahul Sharma)"
-                  value={mobileName}
-                  onChange={(e) => setMobileName(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-950/80 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-slate-300 mb-1">Mobile Number (10 Digits)</label>
-              <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 border-r border-slate-700 pr-2">
-                  +91
+          <div className="space-y-4">
+            {/* Real-time SMS Notification Simulation Banner */}
+            {smsNotification && (
+              <div className="p-3.5 bg-gradient-to-r from-emerald-950/90 via-teal-950/90 to-slate-950 border border-emerald-500/50 rounded-2xl space-y-2 shadow-xl shadow-emerald-950/50 animate-in fade-in slide-in-from-top-3 duration-300">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5 text-emerald-400">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span className="text-[11px] font-black uppercase tracking-wider">SMS from FREE-EARN</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">Just Now</span>
                 </div>
-                <input
-                  type="tel"
-                  required
-                  placeholder="9876543210"
-                  value={mobileOnly}
-                  onChange={(e) => setMobileOnly(e.target.value)}
-                  className="w-full pl-14 pr-4 py-2.5 bg-slate-950/80 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
+                <p className="text-xs text-slate-200">
+                  Your mobile verification OTP is{' '}
+                  <strong className="text-emerald-300 font-mono text-base tracking-widest bg-emerald-900/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                    {smsNotification.otp}
+                  </strong>
+                  . Do not share it with anyone.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOtpInput(smsNotification.otp);
+                    setSuccessMessage('OTP Auto-filled!');
+                  }}
+                  className="w-full py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-[11px] font-extrabold flex items-center justify-center space-x-1.5 shadow-md shadow-emerald-600/30 transition-all"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Tap to Auto-Fill OTP ({smsNotification.otp})</span>
+                </button>
               </div>
-            </div>
+            )}
 
-            <div>
-              <label className="block text-[11px] font-bold text-slate-300 mb-1">Referral Code (Optional)</label>
-              <input
-                type="text"
-                placeholder="e.g. ANKUSH07"
-                value={referralCode}
-                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                className="w-full px-4 py-2.5 bg-slate-950/80 border border-indigo-900/50 rounded-xl text-sm font-mono text-indigo-300 placeholder-slate-500 focus:outline-none focus:border-indigo-500 uppercase"
-              />
-            </div>
+            {otpStep === 'phone' ? (
+              <form onSubmit={handleSendOtp} className="space-y-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Full Name</label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Apna Naam (e.g. Rahul Sharma)"
+                      value={mobileName}
+                      onChange={(e) => setMobileName(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-950/80 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white text-sm font-extrabold shadow-lg shadow-emerald-600/30 active:scale-[0.98] transition-all flex items-center justify-center space-x-2"
-            >
-              {loading ? (
-                <span>Verifying Mobile...</span>
-              ) : (
-                <>
-                  <Phone className="w-4 h-4" />
-                  <span>Instant Mobile Login</span>
-                </>
-              )}
-            </button>
-          </form>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Mobile Number (10 Digits)</label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 border-r border-slate-700 pr-2">
+                      +91
+                    </div>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="9876543210"
+                      maxLength={10}
+                      value={mobileOnly}
+                      onChange={(e) => setMobileOnly(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full pl-14 pr-4 py-2.5 bg-slate-950/80 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono tracking-wider"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">Referral Code (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. ANKUSH07"
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                    className="w-full px-4 py-2.5 bg-slate-950/80 border border-indigo-900/50 rounded-xl text-sm font-mono text-indigo-300 placeholder-slate-500 focus:outline-none focus:border-indigo-500 uppercase"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white text-sm font-extrabold shadow-lg shadow-emerald-600/30 active:scale-[0.98] transition-all flex items-center justify-center space-x-2"
+                >
+                  {loading ? (
+                    <span>Sending OTP...</span>
+                  ) : (
+                    <>
+                      <Phone className="w-4 h-4" />
+                      <span>Send OTP to Phone</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyAndLogin} className="space-y-4 animate-in fade-in duration-200">
+                <div className="p-3 bg-slate-950/70 border border-indigo-900/40 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Phone className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">OTP Sent To:</span>
+                      <span className="text-xs font-bold text-white font-mono">
+                        +91 {mobileOnly.slice(-10)}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOtpStep('phone');
+                      setErrorMessage('');
+                    }}
+                    className="py-1 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px] font-bold flex items-center space-x-1 transition-all"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    <span>Change</span>
+                  </button>
+                </div>
+
+                <div className="py-1">
+                  <label className="text-[11px] font-bold text-slate-300 flex items-center space-x-1.5 mb-2.5">
+                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Enter 6-Digit Verification Code</span>
+                  </label>
+
+                  <OtpInput
+                    length={6}
+                    value={otpInput}
+                    onChange={(val) => {
+                      setOtpInput(val);
+                      if (errorMessage) setErrorMessage('');
+                    }}
+                    onComplete={(code) => {
+                      setOtpInput(code);
+                    }}
+                    countdownSeconds={30}
+                    onResend={handleResendOtp}
+                    disabled={loading}
+                    error={errorMessage}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || otpInput.trim().length !== 6}
+                  className={`w-full py-3 rounded-xl text-white text-sm font-extrabold shadow-lg active:scale-[0.98] transition-all flex items-center justify-center space-x-2 ${
+                    otpInput.trim().length === 6
+                      ? 'bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 shadow-emerald-600/30 cursor-pointer'
+                      : 'bg-slate-800 text-slate-400 cursor-not-allowed opacity-75'
+                  }`}
+                >
+                  {loading ? (
+                    <span>Verifying Code...</span>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Verify OTP & Sign In</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+          </div>
         )}
 
+        {/* Dynamic Context Switcher Buttons */}
+        <div className="pt-2">
+          {activeTab === 'register' && (
+            <div className="p-3 bg-slate-950/80 border border-indigo-900/40 rounded-2xl flex items-center justify-between shadow-inner">
+              <span className="text-xs text-slate-300 font-medium">Already have an account?</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('signin');
+                  setErrorMessage('');
+                  setSuccessMessage('');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs shadow-md shadow-indigo-600/30 transition-all flex items-center space-x-1.5 active:scale-95"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Login Button</span>
+              </button>
+            </div>
+          )}
+
+          {activeTab === 'signin' && (
+            <div className="p-3 bg-slate-950/80 border border-purple-900/40 rounded-2xl flex items-center justify-between shadow-inner">
+              <span className="text-xs text-slate-300 font-medium">New earner?</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('register');
+                  setErrorMessage('');
+                  setSuccessMessage('');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-extrabold text-xs shadow-md shadow-purple-600/30 transition-all flex items-center space-x-1.5 active:scale-95"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Register Button</span>
+              </button>
+            </div>
+          )}
+
+          {activeTab === 'mobile' && (
+            <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-2">
+              <span className="text-[11px] text-slate-400 block text-center font-medium">Or choose another method:</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('signin');
+                    setErrorMessage('');
+                    setSuccessMessage('');
+                  }}
+                  className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center space-x-1.5 transition-all"
+                >
+                  <Lock className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Login Button</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('register');
+                    setErrorMessage('');
+                    setSuccessMessage('');
+                  }}
+                  className="py-2 px-3 rounded-xl bg-purple-700 hover:bg-purple-600 text-white font-bold text-xs flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-purple-900/40"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                  <span>Register Button</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Divider */}
-        <div className="relative my-5">
+        <div className="relative my-4">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-slate-800" />
           </div>
@@ -489,19 +750,57 @@ export const AuthView: React.FC = () => {
           <span>Continue with Google</span>
         </button>
 
-        {/* Footer info: Admin link and Fair play notice */}
+        {/* Footer info: User Trust & Fair play notice */}
         <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
           <div className="flex items-center space-x-1.5 text-emerald-400">
             <ShieldCheck className="w-3.5 h-3.5" />
             <span className="font-semibold">100% Verified Payouts</span>
           </div>
 
-          <a
-            href="#/admin"
-            className="text-indigo-400 hover:text-indigo-300 font-bold transition-colors"
+          <span className="text-slate-500 font-medium">
+            256-Bit SSL Protected
+          </span>
+        </div>
+      </div>
+
+      {/* Persistent Bottom Bar with Login and Register Buttons */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 p-3 bg-slate-950/95 backdrop-blur-xl border-t border-indigo-500/30 shadow-[0_-10px_25px_rgba(0,0,0,0.8)]">
+        <div className="max-w-md mx-auto grid grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('signin');
+              setErrorMessage('');
+              setSuccessMessage('');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`py-3 px-3 rounded-2xl font-black text-xs flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 ${
+              activeTab === 'signin'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-indigo-600/40 border border-indigo-400/50'
+                : 'bg-slate-900 text-slate-300 hover:bg-slate-850 border border-slate-800 hover:text-white'
+            }`}
           >
-            Admin Portal →
-          </a>
+            <Lock className="w-4 h-4 text-indigo-400" />
+            <span>Login Button</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('register');
+              setErrorMessage('');
+              setSuccessMessage('');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`py-3 px-3 rounded-2xl font-black text-xs flex items-center justify-center space-x-2 transition-all shadow-lg active:scale-95 ${
+              activeTab === 'register'
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-pink-600/40 border border-pink-400/50'
+                : 'bg-slate-900 text-slate-300 hover:bg-slate-850 border border-slate-800 hover:text-white'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>Register Button</span>
+          </button>
         </div>
       </div>
     </div>

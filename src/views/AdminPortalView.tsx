@@ -165,9 +165,9 @@ export const AdminPortalView: React.FC = () => {
   const [dailyBonus, setDailyBonus] = useState(settings.dailyBonusCoins || 15);
   const [supportEmail, setSupportEmail] = useState(settings.supportEmail || 'support@freeearn.app');
   const [supportWhatsapp, setSupportWhatsapp] = useState(settings.supportWhatsapp || '+91 9113124207');
-  const [admobAppId, setAdmobAppId] = useState(settings.admobAppId || 'ca-app-pub-3940256099942544~3347511713');
-  const [admobRewardedUnitId, setAdmobRewardedUnitId] = useState(settings.admobRewardedUnitId || 'ca-app-pub-3940256099942544/5224354917');
-  const [admobBannerUnitId, setAdmobBannerUnitId] = useState(settings.admobBannerUnitId || 'ca-app-pub-3940256099942544/6300978111');
+  const [admobAppId, setAdmobAppId] = useState(settings.admobAppId || 'ca-app-pub-7524191132114722~4422067441');
+  const [admobRewardedUnitId, setAdmobRewardedUnitId] = useState(settings.admobRewardedUnitId || 'ca-app-pub-7524191132114722/4622212147');
+  const [admobBannerUnitId, setAdmobBannerUnitId] = useState(settings.admobBannerUnitId || 'ca-app-pub-7524191132114722/4622212147');
 
   // Announcement form
   const [annTitle, setAnnTitle] = useState('');

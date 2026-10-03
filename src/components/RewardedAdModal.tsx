@@ -101,11 +101,12 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
         {/* Top Ad Network Bar */}
         <div className="px-4 py-2.5 bg-slate-950/90 border-b border-indigo-900/40 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700/50 uppercase tracking-wider">
-              Sponsored Video
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 uppercase tracking-wider flex items-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping mr-1.5" />
+              Google AdMob
             </span>
             <span className="text-xs text-slate-400 font-mono">
-              {!isCompleted ? `Ad ends in ${secondsRemaining}s` : 'Ad Completed'}
+              {!isCompleted ? `Reward in ${secondsRemaining}s` : 'Reward Ready (+25 Coins)'}
             </span>
           </div>
 
@@ -207,6 +208,12 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
               <span>Please watch sponsored video till end ({secondsRemaining}s)</span>
             </div>
           )}
+
+          {/* AdMob Unit Tag */}
+          <div className="pt-1 flex items-center justify-between text-[9px] text-slate-500 font-mono">
+            <span>Google AdMob Rewarded</span>
+            <span className="truncate text-indigo-400/80">ca-app-pub-7524191132114722/4622212147</span>
+          </div>
         </div>
 
         {/* Exit Warning Dialog */}

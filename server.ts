@@ -117,6 +117,18 @@ const userClaimHistory = new Map<
 // Device tracking: deviceHash -> Set of userIds
 const deviceAccountsMap = new Map<string, Set<string>>();
 
+// Phone OTP Store for SMS verification (mobile -> { otp, expiresAt, attempts, lastSentAt, requestCount })
+const phoneOtpStore = new Map<
+  string,
+  {
+    otp: string;
+    expiresAt: number;
+    attempts: number;
+    lastSentAt: number;
+    requestCount: number;
+  }
+>();
+
 // Rate limiting store: ip/userId -> timestamps[]
 const rateLimitMap = new Map<string, number[]>();
 
@@ -709,6 +721,15 @@ app.get('/free-earn-user-app.zip', (_req: Request, res: Response) => {
   }
 });
 
+app.get('/free-earn-admin-portal.zip', (_req: Request, res: Response) => {
+  const zipPath = path.resolve(__dirname, 'free-earn-admin-portal.zip');
+  if (fs.existsSync(zipPath)) {
+    res.download(zipPath, 'free-earn-admin-portal.zip');
+  } else {
+    res.status(404).send('Zip file not found');
+  }
+});
+
 app.get('/free-earn-app-full-source.zip', (_req: Request, res: Response) => {
   const zipPath = path.resolve(__dirname, 'free-earn-app-full-source.zip');
   if (fs.existsSync(zipPath)) {
@@ -721,6 +742,118 @@ app.get('/free-earn-app-full-source.zip', (_req: Request, res: Response) => {
 /**
  * 2. User Authentication & Profile Registration
  */
+app.post('/api/auth/send-otp', (req: Request, res: Response) => {
+  try {
+    const { mobile, name } = req.body;
+    const cleanMobile = (mobile || '').replace(/[^0-9]/g, '').slice(-10);
+
+    if (cleanMobile.length !== 10) {
+      res.status(400).json({ success: false, error: 'Kripya valid 10-digit mobile number enter karein.' });
+      return;
+    }
+
+    const now = Date.now();
+    const existing = phoneOtpStore.get(cleanMobile);
+
+    // Rate-limit check: cooldown of 20s before requesting another OTP
+    if (existing && now - existing.lastSentAt < 20 * 1000) {
+      const waitRemaining = Math.ceil((20 * 1000 - (now - existing.lastSentAt)) / 1000);
+      res.status(429).json({
+        success: false,
+        error: `Please wait ${waitRemaining}s before requesting a new OTP.`,
+      });
+      return;
+    }
+
+    // Generate secure 6-digit OTP
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // 5-minute expiry
+    phoneOtpStore.set(cleanMobile, {
+      otp: generatedOtp,
+      expiresAt: now + 5 * 60 * 1000,
+      attempts: 0,
+      lastSentAt: now,
+      requestCount: (existing?.requestCount || 0) + 1,
+    });
+
+    console.log(`📱 [SMS SERVICE] Sent 6-digit OTP ${generatedOtp} to +91 ${cleanMobile} for: ${name || 'Earner'}`);
+
+    res.json({
+      success: true,
+      message: `OTP successfully sent to +91 ${cleanMobile}. Valid for 5 minutes.`,
+      mobile: cleanMobile,
+      otp: generatedOtp, // returned for client-side SMS banner / push preview
+      expiresInSeconds: 300,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'OTP send failed.' });
+  }
+});
+
+app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
+  try {
+    const { mobile, otp } = req.body;
+    const cleanMobile = (mobile || '').replace(/[^0-9]/g, '').slice(-10);
+    const cleanOtp = (otp || '').trim();
+
+    if (cleanMobile.length !== 10 || !cleanOtp) {
+      res.status(400).json({ success: false, error: 'Mobile number aur OTP dono required hain.' });
+      return;
+    }
+
+    const entry = phoneOtpStore.get(cleanMobile);
+    const now = Date.now();
+
+    if (!entry) {
+      res.status(400).json({
+        success: false,
+        error: 'OTP session expire ho gaya hai ya nahi mila. Kripya naya OTP mangwayein.',
+      });
+      return;
+    }
+
+    if (now > entry.expiresAt) {
+      phoneOtpStore.delete(cleanMobile);
+      res.status(400).json({
+        success: false,
+        error: 'OTP expire ho chuka hai (5 minutes exceeded). Kripya naya OTP bhejein.',
+      });
+      return;
+    }
+
+    entry.attempts += 1;
+    if (entry.attempts > 5) {
+      phoneOtpStore.delete(cleanMobile);
+      res.status(403).json({
+        success: false,
+        error: 'Too many incorrect attempts. Security lock: please request a new OTP.',
+      });
+      return;
+    }
+
+    if (entry.otp !== cleanOtp) {
+      const remainingAttempts = 5 - entry.attempts;
+      res.status(400).json({
+        success: false,
+        error: `Galat OTP! Kripya sahi 6-digit code dalein. (${remainingAttempts} attempts remaining)`,
+      });
+      return;
+    }
+
+    // Success! Clean up used OTP
+    phoneOtpStore.delete(cleanMobile);
+
+    res.json({
+      success: true,
+      message: 'Mobile number verified successfully!',
+      verifiedMobile: cleanMobile,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Verification failed.' });
+  }
+});
+
 app.post('/api/auth/login', (req: Request, res: Response) => {
   try {
     const { uid, mobile, name, email, referralCode } = req.body;
@@ -770,6 +903,199 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || 'Login failed' });
   }
+});
+
+/**
+ * 2.1 Referral System & Invite Links
+ */
+app.get('/api/referrals/lookup/:code', (req: Request, res: Response) => {
+  const code = (req.params.code || '').trim().toUpperCase();
+  if (!code) {
+    res.status(400).json({ success: false, valid: false, error: 'Referral code is required.' });
+    return;
+  }
+
+  // Official Admin code
+  if (code === 'ANKUSH07') {
+    res.json({
+      success: true,
+      valid: true,
+      code: 'ANKUSH07',
+      referrerName: 'Ankush Kumar (Admin / Official)',
+      bonusCoins: 50,
+    });
+    return;
+  }
+
+  // Find user by referral code in memory store
+  const referrer = Array.from(usersStore.values()).find(
+    (u) => u.referralCode?.toUpperCase() === code
+  );
+
+  if (referrer) {
+    res.json({
+      success: true,
+      valid: true,
+      code,
+      referrerName: referrer.name,
+      bonusCoins: 50,
+    });
+    return;
+  }
+
+  // Fallback for valid alphanumeric format
+  if (code.length >= 4 && code.length <= 16) {
+    res.json({
+      success: true,
+      valid: true,
+      code,
+      referrerName: 'Invited Member',
+      bonusCoins: 50,
+    });
+    return;
+  }
+
+  res.status(404).json({ success: false, valid: false, error: 'Invalid referral code.' });
+});
+
+app.post('/api/referrals/process', (req: Request, res: Response) => {
+  try {
+    const { referralCode, newUserUid, newUserName, newUserMobile, deviceFingerprint } = req.body;
+    const cleanCode = (referralCode || '').trim().toUpperCase();
+
+    if (!cleanCode || !newUserUid) {
+      res.status(400).json({ success: false, error: 'Invalid referral parameters.' });
+      return;
+    }
+
+    // 1. Anti-Cheat: Self-referral prevention
+    const referrer = Array.from(usersStore.values()).find(
+      (u) => u.referralCode?.toUpperCase() === cleanCode
+    );
+
+    if (referrer) {
+      const cleanNewMobile = (newUserMobile || '').replace(/[^0-9]/g, '').slice(-10);
+      const cleanRefMobile = (referrer.mobile || '').replace(/[^0-9]/g, '').slice(-10);
+
+      if (referrer.uid === newUserUid || (cleanNewMobile && cleanRefMobile && cleanNewMobile === cleanRefMobile)) {
+        logSecurityEvent({
+          userId: newUserUid,
+          userName: newUserName,
+          eventType: 'MULTI_ACCOUNT_ABUSE',
+          severity: 'high',
+          riskScoreDelta: 40,
+          reason: 'Self-referral attempt detected using own referral code or mobile',
+          metadata: { cleanCode, newUserUid, deviceFingerprint },
+        });
+
+        res.status(403).json({ success: false, error: 'Self-referral is strictly forbidden by Anti-Cheat.' });
+        return;
+      }
+    }
+
+    // 2. Anti-Cheat: Multi-account device limit check
+    if (deviceFingerprint) {
+      const existingAccounts = deviceAccountsMap.get(deviceFingerprint);
+      if (existingAccounts && existingAccounts.size > antiCheatConfig.maxAccountsPerDevice) {
+        logSecurityEvent({
+          userId: newUserUid,
+          userName: newUserName,
+          eventType: 'MULTI_ACCOUNT_ABUSE',
+          severity: 'high',
+          riskScoreDelta: 45,
+          reason: `Device referral abuse: ${existingAccounts.size} accounts already created on this device`,
+          metadata: { deviceFingerprint, cleanCode },
+        });
+
+        res.status(403).json({
+          success: false,
+          error: 'Multi-account invite abuse detected on this device.',
+        });
+        return;
+      }
+    }
+
+    // 3. Process referral reward
+    const referralBonusCoins = 100; // Referrer gets +100 Coins (₹1.00)
+    const joinBonusCoins = 50; // New user gets +50 extra coins
+
+    if (referrer) {
+      const updatedReferrer = {
+        ...referrer,
+        coins: (referrer.coins || 0) + referralBonusCoins,
+        totalEarnings: (referrer.totalEarnings || 0) + referralBonusCoins,
+        todayEarnings: (referrer.todayEarnings || 0) + referralBonusCoins,
+      };
+      usersStore.set(referrer.uid, updatedReferrer);
+
+      // Record referrer transaction
+      transactionsStore.unshift({
+        id: `txn_ref_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: referrer.uid,
+        type: 'referral_bonus',
+        amountCoins: referralBonusCoins,
+        amountCurrency: referralBonusCoins / 100,
+        status: 'completed',
+        description: `Referral Reward: Invited ${newUserName || 'new earner'}!`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    // Update new user record
+    const newUser = usersStore.get(newUserUid);
+    if (newUser) {
+      const updatedNewUser = {
+        ...newUser,
+        coins: (newUser.coins || 0) + joinBonusCoins,
+        totalEarnings: (newUser.totalEarnings || 0) + joinBonusCoins,
+        todayEarnings: (newUser.todayEarnings || 0) + joinBonusCoins,
+        referredBy: cleanCode,
+      };
+      usersStore.set(newUserUid, updatedNewUser);
+
+      transactionsStore.unshift({
+        id: `txn_join_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: newUserUid,
+        type: 'referral_bonus',
+        amountCoins: joinBonusCoins,
+        amountCurrency: joinBonusCoins / 100,
+        status: 'completed',
+        description: `Referral Welcome Bonus via invite code: ${cleanCode}`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Referral activated! Referrer earned +${referralBonusCoins} coins and you got +${joinBonusCoins} bonus coins.`,
+      referralBonusCoins,
+      joinBonusCoins,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Failed to process referral.' });
+  }
+});
+
+app.get('/api/referrals/team/:uid', (req: Request, res: Response) => {
+  const user = usersStore.get(req.params.uid);
+  if (!user || !user.referralCode) {
+    res.json({ success: true, team: [], totalCommission: 0 });
+    return;
+  }
+
+  const team = Array.from(usersStore.values())
+    .filter((u) => u.referredBy?.toUpperCase() === user.referralCode?.toUpperCase())
+    .map((u) => ({
+      uid: u.uid,
+      name: u.name,
+      mobile: u.mobile ? u.mobile.replace(/(\d{2})\d{6}(\d{2})/, '$1******$2') : 'Verified Member',
+      joinedAt: u.createdAt,
+      earnings: u.totalEarnings || 0,
+      rewardCoins: 100,
+    }));
+
+  const totalCommission = team.length * 100;
+  res.json({ success: true, team, totalCommission });
 });
 
 /**

@@ -7,14 +7,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   referralRewardCoins: 100, // Inviter earns 100 coins
   referralJoinBonusCoins: 50, // Invitee earns 50 coins
   dailyAdLimit: 10,
-  adRewardCoins: 0,
+  adRewardCoins: 25,
   dailyBonusCoins: 15,
   checkInRewards: [10, 15, 20, 25, 35, 50, 100],
   supportEmail: 'support@freeearn.app',
   supportWhatsapp: '+91 9113124207',
-  admobAppId: 'ca-app-pub-3940256099942544~3347511713',
-  admobRewardedUnitId: 'ca-app-pub-3940256099942544/5224354917',
-  admobBannerUnitId: 'ca-app-pub-3940256099942544/6300978111',
+  admobAppId: 'ca-app-pub-7524191132114722~4422067441',
+  admobRewardedUnitId: 'ca-app-pub-7524191132114722/4622212147',
+  admobBannerUnitId: 'ca-app-pub-7524191132114722/4622212147',
 };
 
 export const INITIAL_TASKS: Omit<Task, 'id' | 'createdAt'>[] = [
@@ -134,22 +134,22 @@ import type { UserProfile, TaskSubmission, Transaction, Withdrawal } from '../ty
 
 export const DEMO_USERS: UserProfile[] = [
   {
-    uid: 'user_phone_9113124207',
-    name: 'Ankush Kumar',
-    mobile: '+91 9113124207',
-    email: 'kumarankush5184@gmail.com',
-    referralCode: 'ANKUSH07',
-    coins: 1000,
-    todayEarnings: 100,
-    totalEarnings: 1000,
-    totalWithdrawn: 0,
+    uid: 'user_demo_vikram',
+    name: 'Vikram Singh',
+    mobile: '+91 98111 22334',
+    email: 'vikram.singh@example.com',
+    referralCode: 'VIKRAM01',
+    coins: 450,
+    todayEarnings: 50,
+    totalEarnings: 600,
+    totalWithdrawn: 150,
     pendingWithdrawalCoins: 0,
-    level: 'Gold',
+    level: 'Silver',
     isBlocked: false,
-    consecutiveCheckIns: 1,
-    adsWatchedToday: 0,
+    consecutiveCheckIns: 2,
+    adsWatchedToday: 1,
     createdAt: '2026-10-01T00:00:00.000Z',
-    isAdmin: true,
+    isAdmin: false,
   },
   {
     uid: 'user_demo_rahul',
