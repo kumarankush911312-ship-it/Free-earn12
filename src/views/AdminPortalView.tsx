@@ -43,6 +43,7 @@ import {
   AntiCheatConfigItem,
   AdminAuditItem,
 } from '../services/security';
+import { getAdminDevicesList, adminUnlockDevice } from '../services/api';
 
 export const AdminPortalView: React.FC = () => {
   const {
@@ -122,20 +123,53 @@ export const AdminPortalView: React.FC = () => {
     suspiciousRiskThreshold: 60,
   });
   const [auditLogs, setAuditLogs] = useState<AdminAuditItem[]>([]);
-  const [securityTab, setSecurityTab] = useState<'flagged' | 'events' | 'config' | 'audit'>('flagged');
+  const [securityTab, setSecurityTab] = useState<'devices' | 'flagged' | 'events' | 'config' | 'audit'>('devices');
+  const [registeredDevices, setRegisteredDevices] = useState<any[]>([]);
+  const [registeredPhones, setRegisteredPhones] = useState<any[]>([]);
+  const [deviceAppealsList, setDeviceAppealsList] = useState<any[]>([]);
+  const [unlockActionLoading, setUnlockActionLoading] = useState(false);
 
   const loadSecurityData = React.useCallback(async () => {
-    const [events, flagged, cfg, audits] = await Promise.all([
+    const [events, flagged, cfg, audits, devData] = await Promise.all([
       fetchSecurityEvents(),
       fetchFlaggedAccounts(),
       fetchAntiCheatConfig(),
       fetchAdminAuditLogs(),
+      getAdminDevicesList(),
     ]);
     setSecurityEvents(events);
     setFlaggedAccounts(flagged);
     if (cfg) setSecurityConfig(cfg);
     setAuditLogs(audits);
+    if (devData && devData.success) {
+      setRegisteredDevices(devData.devices || []);
+      setRegisteredPhones(devData.phones || []);
+      setDeviceAppealsList(devData.appeals || []);
+    }
   }, []);
+
+  const handleAdminUnlockDevice = async (deviceHash?: string, mobile?: string, appealId?: string) => {
+    const reason = prompt(
+      'Enter authorization reason for phone replacement / device unlock:',
+      'Verified legitimate phone replacement'
+    );
+    if (!reason || !reason.trim()) return;
+
+    setUnlockActionLoading(true);
+    const res = await adminUnlockDevice({
+      deviceHash,
+      mobile,
+      reason: reason.trim(),
+    });
+    setUnlockActionLoading(false);
+
+    if (res.success) {
+      alert(res.message || 'Device/Phone successfully unlocked for replacement.');
+      loadSecurityData();
+    } else {
+      alert(res.error || 'Failed to unlock device.');
+    }
+  };
 
   React.useEffect(() => {
     loadSecurityData();
@@ -1526,11 +1560,23 @@ export const AdminPortalView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Sub-Tabs: Flagged Accounts / Security Events / Configuration / Audit Logs */}
-              <div className="flex border-b border-slate-800 text-xs font-bold space-x-2">
+              {/* Sub-Tabs: 1-Phone-1-Account / Flagged Accounts / Security Events / Configuration / Audit Logs */}
+              <div className="flex border-b border-slate-800 text-xs font-bold space-x-2 overflow-x-auto">
+                <button
+                  onClick={() => setSecurityTab('devices')}
+                  className={`pb-3 px-3 transition-colors flex items-center space-x-1.5 border-b-2 shrink-0 ${
+                    securityTab === 'devices'
+                      ? 'border-indigo-500 text-indigo-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>1-Phone-1-Account ({registeredDevices.length})</span>
+                </button>
+
                 <button
                   onClick={() => setSecurityTab('flagged')}
-                  className={`pb-3 px-3 transition-colors flex items-center space-x-1.5 border-b-2 ${
+                  className={`pb-3 px-3 transition-colors flex items-center space-x-1.5 border-b-2 shrink-0 ${
                     securityTab === 'flagged'
                       ? 'border-rose-500 text-rose-400'
                       : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -1542,7 +1588,7 @@ export const AdminPortalView: React.FC = () => {
 
                 <button
                   onClick={() => setSecurityTab('events')}
-                  className={`pb-3 px-3 transition-colors flex items-center space-x-1.5 border-b-2 ${
+                  className={`pb-3 px-3 transition-colors flex items-center space-x-1.5 border-b-2 shrink-0 ${
                     securityTab === 'events'
                       ? 'border-rose-500 text-rose-400'
                       : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -1554,7 +1600,7 @@ export const AdminPortalView: React.FC = () => {
 
                 <button
                   onClick={() => setSecurityTab('config')}
-                  className={`pb-3 px-3 transition-colors flex items-center space-x-1.5 border-b-2 ${
+                  className={`pb-3 px-3 transition-colors flex items-center space-x-1.5 border-b-2 shrink-0 ${
                     securityTab === 'config'
                       ? 'border-rose-500 text-rose-400'
                       : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -1566,7 +1612,7 @@ export const AdminPortalView: React.FC = () => {
 
                 <button
                   onClick={() => setSecurityTab('audit')}
-                  className={`pb-3 px-3 transition-colors flex items-center space-x-1.5 border-b-2 ${
+                  className={`pb-3 px-3 transition-colors flex items-center space-x-1.5 border-b-2 shrink-0 ${
                     securityTab === 'audit'
                       ? 'border-rose-500 text-rose-400'
                       : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -1576,6 +1622,153 @@ export const AdminPortalView: React.FC = () => {
                   <span>Admin Audit Log</span>
                 </button>
               </div>
+
+              {/* Sub-Tab 0: 1-Phone-1-Account Security & Replaced Phone Verification (Requirement 14) */}
+              {securityTab === 'devices' && (
+                <div className="space-y-6">
+                  {/* Summary Metric Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 rounded-2xl bg-slate-900/80 border border-indigo-900/40">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                        Registered Physical Devices
+                      </span>
+                      <div className="text-2xl font-black text-indigo-400">{registeredDevices.length}</div>
+                      <p className="text-[10px] text-slate-500 mt-1">1 Account per device strictly enforced</p>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-900/80 border border-emerald-900/40">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                        Registered Mobile Numbers
+                      </span>
+                      <div className="text-2xl font-black text-emerald-400">{registeredPhones.length}</div>
+                      <p className="text-[10px] text-slate-500 mt-1">1 Account per mobile number enforced</p>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-900/80 border border-amber-900/40">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                        Pending Phone Replacement Appeals
+                      </span>
+                      <div className="text-2xl font-black text-amber-400">
+                        {deviceAppealsList.filter((a) => a.status === 'pending').length}
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1">Legitimate replaced phone verification</p>
+                    </div>
+                  </div>
+
+                  {/* Pending Appeals Section */}
+                  {deviceAppealsList.filter((a) => a.status === 'pending').length > 0 && (
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center space-x-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span>Pending Phone Replacement Appeals ({deviceAppealsList.filter((a) => a.status === 'pending').length})</span>
+                      </h4>
+
+                      <div className="space-y-2">
+                        {deviceAppealsList
+                          .filter((a) => a.status === 'pending')
+                          .map((appeal) => (
+                            <div
+                              key={appeal.id}
+                              className="p-4 rounded-2xl bg-amber-950/20 border border-amber-500/40 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                            >
+                              <div className="space-y-1">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-extrabold text-white">{appeal.name}</span>
+                                  <span className="font-mono text-indigo-300 font-bold bg-slate-900 px-2 py-0.5 rounded border border-indigo-800">
+                                    +91 {appeal.mobile}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500">
+                                    {new Date(appeal.submittedAt).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="text-amber-200">
+                                  <strong>Reason: </strong>"{appeal.reason}"
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={() => handleAdminUnlockDevice(appeal.deviceHash, appeal.mobile, appeal.id)}
+                                disabled={unlockActionLoading}
+                                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md transition-all flex items-center space-x-1.5 self-start md:self-auto shrink-0"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>Approve Phone Replacement & Unlock</span>
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Registered Devices Ledger */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center space-x-1.5">
+                      <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Registered Physical Device Ledger</span>
+                    </h4>
+
+                    {registeredDevices.length === 0 ? (
+                      <div className="py-12 text-center text-slate-500 bg-slate-900/40 rounded-3xl border border-slate-800/50 text-xs">
+                        No registered devices recorded yet.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/60">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-950/80 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800">
+                            <tr>
+                              <th className="p-3">User & Mobile</th>
+                              <th className="p-3">Device Signature</th>
+                              <th className="p-3">Registered Date</th>
+                              <th className="p-3">Status</th>
+                              <th className="p-3 text-right">Admin Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 font-medium">
+                            {registeredDevices.map((dev) => (
+                              <tr key={dev.deviceHash} className="hover:bg-slate-850/50 transition-colors">
+                                <td className="p-3">
+                                  <div className="font-bold text-white">{dev.userName || 'Verified User'}</div>
+                                  <div className="text-[11px] text-indigo-400 font-mono">
+                                    {dev.userMobile ? `+91 ${dev.userMobile}` : dev.userId}
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <span className="font-mono text-[11px] text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800 truncate block max-w-[180px]">
+                                    {dev.deviceHash}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-[11px] text-slate-400">
+                                  {new Date(dev.registeredAt).toLocaleDateString()}
+                                </td>
+                                <td className="p-3">
+                                  {dev.isUnlockedByAdmin ? (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                      Unlocked (Phone Replaced)
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                      Bound (1-to-1)
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-right">
+                                  <button
+                                    onClick={() => handleAdminUnlockDevice(dev.deviceHash, dev.userMobile)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-bold transition-colors inline-flex items-center space-x-1"
+                                  >
+                                    <Unlock className="w-3 h-3 text-amber-400" />
+                                    <span>{dev.isUnlockedByAdmin ? 'Update Authorization' : 'Unlock Device'}</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Sub-Tab 1: Flagged Accounts Review Table */}
               {securityTab === 'flagged' && (

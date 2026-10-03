@@ -186,3 +186,59 @@
   background: rgba(168, 85, 247, 0.8);
 }
 
+/* 3D Splash & Icon Keyframe Animations */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%) rotate(45deg);
+  }
+  100% {
+    transform: translateX(200%) rotate(45deg);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2.8s infinite linear;
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateZ(90px) rotateZ(-12deg) rotateY(20deg) translateY(0px);
+  }
+  50% {
+    transform: translateZ(90px) rotateZ(-10deg) rotateY(15deg) translateY(-14px);
+  }
+}
+
+.animate-float-slow {
+  animation: floatSlow 4s ease-in-out infinite;
+}
+
+@keyframes bounceSubtle {
+  0%, 100% {
+    transform: translateZ(110px) rotateZ(25deg) rotateX(15deg) translateY(0px);
+  }
+  50% {
+    transform: translateZ(110px) rotateZ(28deg) rotateX(12deg) translateY(-10px);
+  }
+}
+
+.animate-bounce-subtle {
+  animation: bounceSubtle 3.2s ease-in-out infinite;
+}
+
+@keyframes spinSlowSubtle {
+  0% {
+    transform: translateZ(35px) rotateY(0deg);
+  }
+  50% {
+    transform: translateZ(35px) rotateY(15deg);
+  }
+  100% {
+    transform: translateZ(35px) rotateY(0deg);
+  }
+}
+
+.animate-spin-slow-subtle {
+  animation: spinSlowSubtle 5s ease-in-out infinite;
+}
+

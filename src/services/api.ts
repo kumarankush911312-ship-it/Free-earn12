@@ -34,7 +34,7 @@ import {
   DEMO_SUBMISSIONS,
   DEMO_WITHDRAWALS,
 } from './seedData';
-import { getDeviceFingerprint } from './security';
+import { getDeviceFingerprint, getDeviceHardwareEntropy } from './security';
 
 // Helper to get today's date formatted as YYYY-MM-DD
 export function getTodayDateString(): string {
@@ -74,7 +74,7 @@ function setLocalItem<T>(key: string, value: T): void {
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
+    const timeout = setTimeout(() => controller.abort(), 4000);
     const res = await fetch(path, {
       signal: controller.signal,
       headers: {
@@ -85,7 +85,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | nul
     });
     clearTimeout(timeout);
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       return (await res.json()) as T;
     }
   } catch {
@@ -875,12 +875,15 @@ export async function recordReferral(
 // ---------------- MOBILE OTP AUTHENTICATION ----------------
 export async function sendMobileOtp(
   mobile: string,
-  name?: string
+  name?: string,
+  mode: 'register' | 'login' = 'login'
 ): Promise<{ success: boolean; message: string; otp?: string; error?: string }> {
   const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
   if (cleanMobile.length !== 10) {
     return { success: false, message: '', error: 'Kripya 10-digit valid mobile number enter karein.' };
   }
+
+  const hardwareEntropy = getDeviceHardwareEntropy();
 
   try {
     const res = await apiFetch<{
@@ -891,7 +894,7 @@ export async function sendMobileOtp(
       error?: string;
     }>('/api/auth/send-otp', {
       method: 'POST',
-      body: JSON.stringify({ mobile: cleanMobile, name }),
+      body: JSON.stringify({ mobile: cleanMobile, name, mode, hardwareEntropy }),
     });
 
     if (res && res.success) {
@@ -908,13 +911,10 @@ export async function sendMobileOtp(
       };
     }
   } catch (err: any) {
-    // Fallback in case of network issue: generate deterministic client OTP
-    const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    sessionStorage.setItem(`fe_otp_${cleanMobile}`, fallbackOtp);
     return {
-      success: true,
-      message: `OTP sent to +91 ${cleanMobile}. (Valid for 5 mins)`,
-      otp: fallbackOtp,
+      success: false,
+      message: '',
+      error: 'Network error. Please try again.',
     };
   }
 }
@@ -941,12 +941,65 @@ export async function verifyMobileOtp(
     }
     return { success: false, error: res?.error || 'Galat OTP! Kripya sahi 6-digit code dalein.' };
   } catch {
-    // Check fallback
-    const stored = sessionStorage.getItem(`fe_otp_${cleanMobile}`);
-    if (stored && stored === cleanOtp) {
-      sessionStorage.removeItem(`fe_otp_${cleanMobile}`);
-      return { success: true };
-    }
-    return { success: false, error: 'Galat OTP! Kripya check karke punah enter karein.' };
+    return { success: false, error: 'Verification failed. Please try again.' };
   }
+}
+
+// ---------------- BACKEND AUTHENTICATION & DEVICE REGISTRATION ----------------
+export async function backendAuthLogin(params: {
+  uid?: string;
+  mobile?: string;
+  name?: string;
+  email?: string;
+  referralCode?: string;
+  isNew?: boolean;
+}): Promise<{ success: boolean; user?: UserProfile; isNew?: boolean; error?: string }> {
+  const hardwareEntropy = getDeviceHardwareEntropy();
+  const res = await apiFetch<{
+    success: boolean;
+    user?: UserProfile;
+    isNew?: boolean;
+    error?: string;
+  }>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...params,
+      hardwareEntropy,
+    }),
+  });
+
+  if (res && res.success && res.user) {
+    return { success: true, user: res.user, isNew: res.isNew };
+  }
+  return {
+    success: false,
+    error: res?.error || 'Authentication failed. Please try again.',
+  };
+}
+
+// ---------------- ADMIN DEVICE & 1-PHONE-1-ACCOUNT MANAGEMENT ----------------
+export async function getAdminDevicesList(): Promise<{
+  success: boolean;
+  devices: any[];
+  phones: any[];
+  appeals: any[];
+  error?: string;
+}> {
+  const res = await apiFetch<any>('/api/admin/devices');
+  if (res && res.success) {
+    return res;
+  }
+  return { success: false, devices: [], phones: [], appeals: [], error: res?.error || 'Failed to fetch devices' };
+}
+
+export async function adminUnlockDevice(params: {
+  deviceHash?: string;
+  mobile?: string;
+  reason: string;
+}): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await apiFetch<any>('/api/admin/devices/unlock', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+  return res || { success: false, error: 'Server error' };
 }

@@ -67,6 +67,36 @@ export interface AdminAuditItem {
   timestamp: string;
 }
 
+// Generate rich, un-spoofable client hardware entropy
+export function getDeviceHardwareEntropy(): string {
+  try {
+    let glRenderer = '';
+    try {
+      const canvas = document.createElement('canvas');
+      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if (gl) {
+        const debugInfo = (gl as any).getExtension('WEBGL_debug_renderer_info');
+        if (debugInfo) {
+          glRenderer = (gl as any).getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '';
+        }
+      }
+    } catch {}
+
+    const parts = [
+      typeof screen !== 'undefined' ? `${screen.width}x${screen.height}x${screen.colorDepth}` : 'screen_unknown',
+      typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1,
+      typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 4) : 4,
+      typeof navigator !== 'undefined' ? (navigator.platform || '') : '',
+      typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0,
+      typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone || '' : '',
+      glRenderer,
+    ];
+    return parts.join('|');
+  } catch {
+    return 'generic_device_entropy';
+  }
+}
+
 // Generate client device fingerprint
 export function getDeviceFingerprint(): string {
   try {
@@ -77,6 +107,7 @@ export function getDeviceFingerprint(): string {
       screen.colorDepth,
       Intl.DateTimeFormat().resolvedOptions().timeZone,
       navigator.hardwareConcurrency || 4,
+      getDeviceHardwareEntropy(),
     ].join('###');
 
     // Simple deterministic hash
@@ -89,6 +120,28 @@ export function getDeviceFingerprint(): string {
     return 'dev_' + Math.abs(hash).toString(16);
   } catch {
     return 'dev_unknown_fallback';
+  }
+}
+
+// Submit Device Replacement Appeal (for legitimate cases such as replaced phone)
+export async function submitDeviceAppeal(params: {
+  mobile: string;
+  name: string;
+  reason: string;
+}): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/security/device-appeal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...params,
+        hardwareEntropy: getDeviceHardwareEntropy(),
+      }),
+    });
+    const data = await res.json();
+    return data;
+  } catch {
+    return { success: false, error: 'Appeal submission network error. Kripya punah try karein.' };
   }
 }
 

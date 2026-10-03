@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { sendMobileOtp, verifyMobileOtp } from '../services/api';
 import { OtpInput } from '../components/OtpInput';
+import { AppealModal } from '../components/AppealModal';
 import {
   Sparkles,
   Phone,
@@ -18,6 +19,7 @@ import {
   RotateCcw,
   Edit2,
   Check,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const AuthView: React.FC = () => {
@@ -53,6 +55,7 @@ export const AuthView: React.FC = () => {
   const [otpInput, setOtpInput] = useState('');
   const [otpCountdown, setOtpCountdown] = useState(0);
   const [smsNotification, setSmsNotification] = useState<{ otp: string; phone: string } | null>(null);
+  const [appealModalOpen, setAppealModalOpen] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -137,7 +140,8 @@ export const AuthView: React.FC = () => {
     }
 
     setLoading(true);
-    const res = await sendMobileOtp(mobileOnly, mobileName);
+    const mode = (activeTab === 'register' || activeTab === 'mobile') ? 'register' : 'login';
+    const res = await sendMobileOtp(mobileOnly, mobileName, mode);
     setLoading(false);
 
     if (res.success) {
@@ -193,7 +197,8 @@ export const AuthView: React.FC = () => {
     if (otpCountdown > 0) return;
     setErrorMessage('');
     setLoading(true);
-    const res = await sendMobileOtp(mobileOnly, mobileName);
+    const mode = (activeTab === 'register' || activeTab === 'mobile') ? 'register' : 'login';
+    const res = await sendMobileOtp(mobileOnly, mobileName, mode);
     setLoading(false);
 
     if (res.success) {
@@ -232,8 +237,8 @@ export const AuthView: React.FC = () => {
         
         {/* Top App Branding */}
         <div className="text-center mb-6">
-          <div className="inline-flex w-16 h-16 rounded-3xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 items-center justify-center shadow-2xl shadow-indigo-600/40 mb-3 animate-float-3d">
-            <Sparkles className="w-8 h-8 text-white" />
+          <div className="inline-flex w-18 h-18 p-1 rounded-3xl bg-gradient-to-tr from-amber-400 via-purple-600 to-indigo-600 items-center justify-center shadow-2xl shadow-indigo-600/50 mb-3 animate-float-3d">
+            <img src="/app-icon.svg" alt="Free Earn 3D App Icon" className="w-16 h-16 rounded-[22px] object-cover" />
           </div>
           <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-purple-200 tracking-tight">
             FREE EARN
@@ -306,19 +311,54 @@ export const AuthView: React.FC = () => {
 
         {/* Error / Success Messages */}
         {errorMessage && (
-          <div className="mb-4 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold space-y-2">
-            <div>{errorMessage}</div>
-            {(errorMessage.toLowerCase().includes('google') || errorMessage.toLowerCase().includes('popup')) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('mobile');
-                  setErrorMessage('');
-                }}
-                className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition-all text-center block shadow-md"
-              >
-                👉 Use Fast Mobile Number Login
-              </button>
+          <div className="mb-4">
+            {errorMessage === 'This device or mobile number is already registered.' ||
+            errorMessage.includes('already registered') ? (
+              <div className="p-3.5 bg-rose-950/80 border border-rose-500/50 rounded-2xl text-left space-y-2.5 shadow-lg shadow-rose-950/50 animate-in fade-in">
+                <div className="flex items-center space-x-2 text-rose-300 font-extrabold text-xs">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>This device or mobile number is already registered.</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Strict Security Policy: 1 Physical Phone + 1 Mobile Number = 1 Account. Creating multiple accounts on the same phone is prohibited.
+                </p>
+                <div className="flex items-center space-x-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('signin');
+                      setErrorMessage('');
+                    }}
+                    className="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-[11px] shadow-md shadow-indigo-600/30 flex items-center justify-center space-x-1.5 transition-all active:scale-95"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Login with Account</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAppealModalOpen(true)}
+                    className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold border border-slate-700 transition-all"
+                  >
+                    Replaced Phone?
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold space-y-2">
+                <div>{errorMessage}</div>
+                {(errorMessage.toLowerCase().includes('google') || errorMessage.toLowerCase().includes('popup')) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('mobile');
+                      setErrorMessage('');
+                    }}
+                    className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition-all text-center block shadow-md"
+                  >
+                    👉 Use Fast Mobile Number Login
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -803,6 +843,14 @@ export const AuthView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Replaced Phone Appeal Modal */}
+      <AppealModal
+        isOpen={appealModalOpen}
+        onClose={() => setAppealModalOpen(false)}
+        mode="replaced_phone"
+        initialMobile={mobileOnly}
+      />
     </div>
   );
 };

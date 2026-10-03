@@ -20,11 +20,13 @@ import { AuthModal } from './components/AuthModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
 import { RewardedAdModal } from './components/RewardedAdModal';
 import { FaqModal, TermsModal, ContactSupportModal } from './components/SupportModals';
+import { ThreeDSplashScreen } from './components/ThreeDSplashScreen';
 import { Wifi, Battery, Sparkles } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
   const { activeTab, setActiveTab, isPhoneFrame, authLoading, user } = useApp();
 
+  const [showSplash, setShowSplash] = useState<boolean>(true);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [notifDrawerOpen, setNotifDrawerOpen] = useState(false);
   const [adModalOpen, setAdModalOpen] = useState(false);
@@ -92,6 +94,11 @@ const MainAppContent: React.FC = () => {
   }, [activeTab, setActiveTab]);
 
   const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  // 3D Cinematic Opening Screen when user opens app
+  if (showSplash) {
+    return <ThreeDSplashScreen onComplete={() => setShowSplash(false)} />;
+  }
 
   // Standalone Full-Screen Dedicated Admin Portal Mode (Only when URL is #/admin or /admin)
   if (activeTab === 'admin') {

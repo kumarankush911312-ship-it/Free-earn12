@@ -38,6 +38,7 @@ import {
   getTodayDateString,
   generateReferralCode,
   generateId,
+  backendAuthLogin,
 } from '../services/api';
 import { DEFAULT_SETTINGS } from '../services/seedData';
 import { auth, db } from '../firebase';
@@ -384,8 +385,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       // Check existing user directly by UID (does not require listing all users)
       let activeProfile = await getUserProfile(uid);
+      const isNewUser = !activeProfile;
 
-      if (activeProfile) {
+      // STRICT BACKEND ENFORCEMENT: One Phone + One Mobile = One Account
+      const backendRes = await backendAuthLogin({
+        uid,
+        mobile: tenDigit,
+        name: name.trim() || `Earner ${tenDigit.slice(-4)}`,
+        referralCode,
+        isNew: isNewUser,
+      });
+
+      if (!backendRes.success) {
+        return {
+          success: false,
+          error: backendRes.error || 'This device or mobile number is already registered.',
+        };
+      }
+
+      if (backendRes.user) {
+        activeProfile = backendRes.user;
+      }
+
+      if (activeProfile && !isNewUser) {
         if (activeProfile.isBlocked) {
           return { success: false, error: 'Yeh account policy violation ki wajah se suspended hai.' };
         }
@@ -511,6 +533,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (fbUser) {
         let profile = await getUserProfile(fbUser.uid);
         if (!profile) {
+          // STRICT BACKEND ENFORCEMENT: One Phone + One Mobile = One Account
+          const backendRes = await backendAuthLogin({
+            uid: fbUser.uid,
+            email: fbUser.email || '',
+            mobile: fbUser.phoneNumber || '',
+            name: fbUser.displayName || 'Google Earner',
+            isNew: true,
+          });
+
+          if (!backendRes.success) {
+            return {
+              success: false,
+              error: backendRes.error || 'This device or mobile number is already registered.',
+            };
+          }
+
           const isUserAdmin = fbUser.email ? ADMIN_EMAILS.includes(fbUser.email.toLowerCase()) : false;
           const startingCoins = isUserAdmin ? 10000 : 100;
 
@@ -685,6 +723,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       const cleanMobile = mobile ? mobile.replace(/[^0-9]/g, '') : '';
       const formattedMobile = cleanMobile.length >= 10 ? `+91 ${cleanMobile.slice(-10)}` : '';
+
+      // STRICT BACKEND ENFORCEMENT: One Phone + One Mobile = One Account
+      const backendRes = await backendAuthLogin({
+        uid,
+        email: cleanEmail,
+        mobile: cleanMobile ? cleanMobile.slice(-10) : undefined,
+        name: name.trim(),
+        referralCode,
+        isNew: true,
+      });
+
+      if (!backendRes.success) {
+        return {
+          success: false,
+          error: backendRes.error || 'This device or mobile number is already registered.',
+        };
+      }
 
       const newProfile: UserProfile = {
         uid,

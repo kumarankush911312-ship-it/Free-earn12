@@ -114,6 +114,237 @@ const userClaimHistory = new Map<
   }
 >();
 
+// -------------------------------------------------------------
+// ONE PHONE + ONE MOBILE NUMBER = ONE ACCOUNT SECURITY SYSTEM
+// -------------------------------------------------------------
+const DEVICE_REGISTRY_FILE = path.resolve(__dirname, 'data', 'device_security_registry.json');
+const SERVER_HMAC_SECRET = process.env.DEVICE_HMAC_SECRET || 'FE_SECURE_HMAC_KEY_2026_x8802';
+
+export interface DeviceRecord {
+  deviceHash: string;
+  cookieToken?: string;
+  hardwareHash?: string;
+  userId: string;
+  userMobile?: string;
+  userEmail?: string;
+  registeredAt: string;
+  lastSeenAt: string;
+  ipAddress: string;
+  userAgent: string;
+  hardwareEntropy?: string;
+  isUnlockedByAdmin: boolean;
+  unlockedAt?: string;
+  unlockedReason?: string;
+}
+
+export interface PhoneRecord {
+  mobile: string; // 10-digit clean
+  userId: string;
+  deviceHash: string;
+  registeredAt: string;
+  isUnlockedByAdmin: boolean;
+  unlockedAt?: string;
+  unlockedReason?: string;
+}
+
+export interface DeviceAppealRecord {
+  id: string;
+  mobile: string;
+  name: string;
+  reason: string;
+  deviceHash: string;
+  submittedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedAt?: string;
+  reviewNotes?: string;
+}
+
+const deviceRegistry = new Map<string, DeviceRecord>();
+const phoneRegistry = new Map<string, PhoneRecord>();
+const deviceAppeals: DeviceAppealRecord[] = [];
+
+// Helper to load persistent registry from disk
+function loadDeviceRegistry(): void {
+  try {
+    if (fs.existsSync(DEVICE_REGISTRY_FILE)) {
+      const raw = fs.readFileSync(DEVICE_REGISTRY_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.devices)) {
+        parsed.devices.forEach((d: DeviceRecord) => deviceRegistry.set(d.deviceHash, d));
+      }
+      if (Array.isArray(parsed.phones)) {
+        parsed.phones.forEach((p: PhoneRecord) => phoneRegistry.set(p.mobile, p));
+      }
+      if (Array.isArray(parsed.appeals)) {
+        deviceAppeals.push(...parsed.appeals);
+      }
+    }
+  } catch (err) {
+    console.error('Notice: Initializing fresh device security registry:', err);
+  }
+}
+
+// Helper to save persistent registry to disk
+function saveDeviceRegistry(): void {
+  try {
+    const dataDir = path.dirname(DEVICE_REGISTRY_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const data = {
+      updatedAt: new Date().toISOString(),
+      devices: Array.from(deviceRegistry.values()),
+      phones: Array.from(phoneRegistry.values()),
+      appeals: deviceAppeals.slice(-100),
+    };
+    fs.writeFileSync(DEVICE_REGISTRY_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save device security registry to disk:', err);
+  }
+}
+
+// Load on server startup
+loadDeviceRegistry();
+
+// Helper: parse raw cookie header into key-value map
+function parseCookies(req: Request): Record<string, string> {
+  const list: Record<string, string> = {};
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach((cookie) => {
+    let [name, ...rest] = cookie.split('=');
+    name = name?.trim();
+    if (!name) return;
+    list[name] = decodeURIComponent(rest.join('=').trim());
+  });
+  return list;
+}
+
+// Resolve server-authoritative device signature (never trust client blindly)
+function resolveServerDevice(req: Request, clientPayload?: any): {
+  deviceHash: string;
+  cookieToken: string;
+  clientIp: string;
+  userAgent: string;
+  hardwareHash: string;
+} {
+  const cookies = parseCookies(req);
+  let cookieToken = cookies['__fe_dev_token'] || (req.headers['x-device-token'] as string);
+
+  const clientIp = ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '').split(',')[0].trim();
+  const userAgent = (req.headers['user-agent'] || '').trim();
+  const acceptLang = ((req.headers['accept-language'] as string) || '').split(',')[0].trim();
+
+  // Hardware entropy: Screen, color depth, pixelRatio, hardwareConcurrency, platform, timezone, webgl renderer
+  const rawEntropy = typeof clientPayload?.hardwareEntropy === 'string'
+    ? clientPayload.hardwareEntropy
+    : typeof clientPayload?.deviceFingerprint === 'string'
+    ? clientPayload.deviceFingerprint
+    : '';
+
+  // Generate deterministic hardware hash (independent of SIM or IP)
+  const hardwareHash = crypto
+    .createHmac('sha256', SERVER_HMAC_SECRET)
+    .update([userAgent, acceptLang, rawEntropy].join('###'))
+    .digest('hex')
+    .substring(0, 24);
+
+  let matchedDevice: DeviceRecord | undefined;
+
+  // 1. Check if we already have a device matching this deterministic hardware hash
+  for (const record of deviceRegistry.values()) {
+    if (record.hardwareHash === hardwareHash || record.deviceHash === `dev_${hardwareHash}`) {
+      matchedDevice = record;
+      break;
+    }
+  }
+
+  // 2. If not matched by hardware hash, check if permanent HttpOnly cookie token matches
+  if (!matchedDevice && cookieToken) {
+    for (const record of deviceRegistry.values()) {
+      if (record.cookieToken === cookieToken) {
+        matchedDevice = record;
+        break;
+      }
+    }
+  }
+
+  if (!cookieToken || cookieToken.length < 16) {
+    cookieToken = matchedDevice?.cookieToken || ('dtk_' + crypto.randomBytes(16).toString('hex'));
+  }
+
+  const finalDeviceHash = matchedDevice ? matchedDevice.deviceHash : `dev_${hardwareHash}`;
+
+  return { deviceHash: finalDeviceHash, cookieToken, clientIp, userAgent, hardwareHash };
+}
+
+// Validation function: Enforces strict One Phone + One Mobile = One Account
+function validateOneDeviceOneAccount(
+  req: Request,
+  mobile: string | undefined,
+  targetUid: string | undefined,
+  isRegistration: boolean
+): { allowed: boolean; errorMessage?: string; deviceHash: string; cookieToken: string; hardwareHash: string } {
+  const { deviceHash, cookieToken, hardwareHash } = resolveServerDevice(req, req.body);
+
+  // 1. Mobile Number Check: Each mobile number can create only ONE account
+  if (mobile) {
+    const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
+    if (cleanMobile.length === 10) {
+      const existingPhone = phoneRegistry.get(cleanMobile);
+      if (existingPhone && !existingPhone.isUnlockedByAdmin) {
+        // If this is a new account registration, or belongs to a different UID
+        if (isRegistration || (targetUid && existingPhone.userId !== targetUid)) {
+          logSecurityEvent({
+            userId: targetUid || `attempt_${cleanMobile}`,
+            userName: req.body?.name || 'Blocked Duplicate User',
+            eventType: 'MULTI_ACCOUNT_ABUSE',
+            severity: 'critical',
+            riskScoreDelta: 90,
+            reason: `Blocked duplicate account creation: Mobile ${cleanMobile} is already registered to account ${existingPhone.userId}`,
+            metadata: { cleanMobile, existingUserId: existingPhone.userId, deviceHash },
+          });
+          return {
+            allowed: false,
+            errorMessage: 'This device or mobile number is already registered.',
+            deviceHash,
+            cookieToken,
+            hardwareHash,
+          };
+        }
+      }
+    }
+  }
+
+  // 2. Physical Device Check: Each physical device can create only ONE account
+  if (isRegistration) {
+    const existingDevice = deviceRegistry.get(deviceHash);
+    if (existingDevice && !existingDevice.isUnlockedByAdmin) {
+      // If the device already registered an account, and targetUid is different or not specified
+      if (!targetUid || existingDevice.userId !== targetUid) {
+        logSecurityEvent({
+          userId: targetUid || `attempt_dev_${deviceHash.slice(-6)}`,
+          userName: req.body?.name || 'Blocked Duplicate Device',
+          eventType: 'MULTI_ACCOUNT_ABUSE',
+          severity: 'critical',
+          riskScoreDelta: 95,
+          reason: `Blocked duplicate account creation on already registered physical device ${deviceHash}. Bound to account ${existingDevice.userId}`,
+          metadata: { deviceHash, existingUserId: existingDevice.userId, existingMobile: existingDevice.userMobile },
+        });
+        return {
+          allowed: false,
+          errorMessage: 'This device or mobile number is already registered.',
+          deviceHash,
+          cookieToken,
+          hardwareHash,
+        };
+      }
+    }
+  }
+
+  return { allowed: true, deviceHash, cookieToken, hardwareHash };
+}
+
 // Device tracking: deviceHash -> Set of userIds
 const deviceAccountsMap = new Map<string, Set<string>>();
 
@@ -654,8 +885,34 @@ import type {
 } from './src/types/index.ts';
 
 // Server-side database stores
+const USERS_FILE = path.resolve(__dirname, 'data', 'users_registry.json');
 const usersStore = new Map<string, UserProfile>();
 DEMO_USERS.forEach((u) => usersStore.set(u.uid, { ...u }));
+
+function loadUsersRegistry(): void {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const raw = fs.readFileSync(USERS_FILE, 'utf-8');
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list.forEach((u: UserProfile) => usersStore.set(u.uid, u));
+      }
+    }
+  } catch (err) {
+    console.error('Notice: Initializing fresh users store:', err);
+  }
+}
+
+function saveUsersRegistry(): void {
+  try {
+    const list = Array.from(usersStore.values());
+    fs.writeFileSync(USERS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save users store to disk:', err);
+  }
+}
+
+loadUsersRegistry();
 
 let tasksStore: Task[] = INITIAL_TASKS.map((t, idx) => ({
   ...t,
@@ -744,12 +1001,25 @@ app.get('/free-earn-app-full-source.zip', (_req: Request, res: Response) => {
  */
 app.post('/api/auth/send-otp', (req: Request, res: Response) => {
   try {
-    const { mobile, name } = req.body;
+    const { mobile, name, mode } = req.body;
     const cleanMobile = (mobile || '').replace(/[^0-9]/g, '').slice(-10);
 
     if (cleanMobile.length !== 10) {
       res.status(400).json({ success: false, error: 'Kripya valid 10-digit mobile number enter karein.' });
       return;
+    }
+
+    // STRICT CHECK: If registering, ensure mobile and device are not already registered
+    if (mode === 'register') {
+      const validation = validateOneDeviceOneAccount(req, cleanMobile, undefined, true);
+      if (!validation.allowed) {
+        res.status(409).json({
+          success: false,
+          error: validation.errorMessage || 'This device or mobile number is already registered.',
+          code: 'DUPLICATE_REGISTRATION',
+        });
+        return;
+      }
     }
 
     const now = Date.now();
@@ -856,19 +1126,36 @@ app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
 
 app.post('/api/auth/login', (req: Request, res: Response) => {
   try {
-    const { uid, mobile, name, email, referralCode } = req.body;
-    const finalUid = uid || (mobile ? `user_phone_${mobile.replace(/[^0-9]/g, '').slice(-10)}` : `user_${Date.now()}`);
+    const { uid, mobile, name, email, referralCode, isNew: explicitIsNew } = req.body;
+    const cleanMobile = mobile ? mobile.replace(/[^0-9]/g, '').slice(-10) : '';
+    const finalUid = uid || (cleanMobile ? `user_phone_${cleanMobile}` : `user_${Date.now()}`);
 
     let user = usersStore.get(finalUid);
-    let isNew = false;
+    const isNew = !user || explicitIsNew === true;
+
+    // STRICT ONE PHONE + ONE MOBILE = ONE ACCOUNT SECURITY SYSTEM
+    const validation = validateOneDeviceOneAccount(req, cleanMobile, finalUid, isNew);
+    if (!validation.allowed) {
+      res.status(409).json({
+        success: false,
+        error: validation.errorMessage || 'This device or mobile number is already registered.',
+        code: 'DUPLICATE_REGISTRATION',
+      });
+      return;
+    }
+
+    // Set permanent 10-year HttpOnly device token cookie
+    res.setHeader(
+      'Set-Cookie',
+      `__fe_dev_token=${validation.cookieToken}; Path=/; Max-Age=315360000; HttpOnly; SameSite=Lax`
+    );
 
     if (!user) {
-      isNew = true;
       const newRefCode = 'FE' + Math.random().toString(36).substring(2, 7).toUpperCase();
       user = {
         uid: finalUid,
-        name: name || (mobile ? `User ${mobile.slice(-4)}` : 'Free Earn User'),
-        mobile: mobile || '',
+        name: name || (cleanMobile ? `User ${cleanMobile.slice(-4)}` : 'Free Earn User'),
+        mobile: cleanMobile ? `+91 ${cleanMobile}` : '',
         email: email || '',
         referralCode: newRefCode,
         referredBy: referralCode || undefined,
@@ -882,9 +1169,38 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
         consecutiveCheckIns: 0,
         adsWatchedToday: 0,
         createdAt: new Date().toISOString(),
-        isAdmin: email === 'kumarankush5184@gmail.com' || mobile === '+91 9113124207' || mobile === '9113124207',
+        isAdmin: email === 'kumarankush5184@gmail.com' || cleanMobile === '9113124207',
       };
       usersStore.set(finalUid, user);
+
+      // Register device and phone persistently in backend database
+      if (cleanMobile) {
+        phoneRegistry.set(cleanMobile, {
+          mobile: cleanMobile,
+          userId: finalUid,
+          deviceHash: validation.deviceHash,
+          registeredAt: new Date().toISOString(),
+          isUnlockedByAdmin: false,
+        });
+      }
+
+      deviceRegistry.set(validation.deviceHash, {
+        deviceHash: validation.deviceHash,
+        cookieToken: validation.cookieToken,
+        hardwareHash: validation.hardwareHash,
+        userId: finalUid,
+        userMobile: cleanMobile,
+        userEmail: email || '',
+        registeredAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        ipAddress: ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '').split(',')[0].trim(),
+        userAgent: req.headers['user-agent'] || '',
+        hardwareEntropy: req.body?.hardwareEntropy,
+        isUnlockedByAdmin: false,
+      });
+
+      saveDeviceRegistry();
+      saveUsersRegistry();
 
       // Record welcome transaction
       transactionsStore.unshift({
@@ -897,6 +1213,13 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
         description: 'Welcome Sign-up Bonus',
         createdAt: new Date().toISOString(),
       });
+    } else {
+      // Existing user logging in: update last seen
+      const devRecord = deviceRegistry.get(validation.deviceHash);
+      if (devRecord) {
+        devRecord.lastSeenAt = new Date().toISOString();
+        saveDeviceRegistry();
+      }
     }
 
     res.json({ success: true, user, isNew });
@@ -968,7 +1291,8 @@ app.post('/api/referrals/process', (req: Request, res: Response) => {
       return;
     }
 
-    // 1. Anti-Cheat: Self-referral prevention
+    // 1. Anti-Cheat: Self-referral prevention (Requirement 10)
+    const { deviceHash } = resolveServerDevice(req, req.body);
     const referrer = Array.from(usersStore.values()).find(
       (u) => u.referralCode?.toUpperCase() === cleanCode
     );
@@ -976,19 +1300,32 @@ app.post('/api/referrals/process', (req: Request, res: Response) => {
     if (referrer) {
       const cleanNewMobile = (newUserMobile || '').replace(/[^0-9]/g, '').slice(-10);
       const cleanRefMobile = (referrer.mobile || '').replace(/[^0-9]/g, '').slice(-10);
+      const referrerPhone = cleanRefMobile ? phoneRegistry.get(cleanRefMobile) : undefined;
+      const referrerDevice = Array.from(deviceRegistry.values()).find(
+        (d) => d.userId === referrer.uid || (referrerPhone && d.deviceHash === referrerPhone.deviceHash)
+      );
 
-      if (referrer.uid === newUserUid || (cleanNewMobile && cleanRefMobile && cleanNewMobile === cleanRefMobile)) {
+      if (
+        referrer.uid === newUserUid ||
+        (cleanNewMobile && cleanRefMobile && cleanNewMobile === cleanRefMobile) ||
+        (referrerPhone && referrerPhone.deviceHash === deviceHash) ||
+        (referrerDevice && referrerDevice.deviceHash === deviceHash)
+      ) {
         logSecurityEvent({
           userId: newUserUid,
           userName: newUserName,
           eventType: 'MULTI_ACCOUNT_ABUSE',
-          severity: 'high',
-          riskScoreDelta: 40,
-          reason: 'Self-referral attempt detected using own referral code or mobile',
-          metadata: { cleanCode, newUserUid, deviceFingerprint },
+          severity: 'critical',
+          riskScoreDelta: 95,
+          reason: `Self-referral abuse detected: Referrer ${referrer.uid} and Referee ${newUserUid} share the same physical phone (${deviceHash})`,
+          metadata: { cleanCode, newUserUid, deviceHash, referrerUid: referrer.uid },
         });
 
-        res.status(403).json({ success: false, error: 'Self-referral is strictly forbidden by Anti-Cheat.' });
+        res.status(403).json({
+          success: false,
+          error: 'Self-referral on the same device is strictly prohibited by Fair Play policy.',
+          code: 'SELF_REFERRAL_BLOCKED',
+        });
         return;
       }
     }
@@ -1074,6 +1411,131 @@ app.post('/api/referrals/process', (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || 'Failed to process referral.' });
   }
+});
+
+/**
+ * 2.2 Device Security & 1-Phone-1-Account Admin Review Endpoints (Requirement 14)
+ */
+app.get('/api/admin/devices', (_req: Request, res: Response) => {
+  try {
+    const devicesList = Array.from(deviceRegistry.values()).map((d) => {
+      const u = usersStore.get(d.userId);
+      return {
+        ...d,
+        userName: u?.name || 'Verified User',
+        userMobile: u?.mobile || d.userMobile || 'No mobile',
+      };
+    });
+
+    res.json({
+      success: true,
+      devices: devicesList,
+      phones: Array.from(phoneRegistry.values()),
+      appeals: deviceAppeals,
+      totalRegisteredDevices: deviceRegistry.size,
+      totalRegisteredPhones: phoneRegistry.size,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve registered devices.' });
+  }
+});
+
+// Admin unlock device / phone for legitimate phone replacement
+app.post('/api/admin/devices/unlock', (req: Request, res: Response) => {
+  try {
+    const { deviceHash, mobile, reason, adminEmail } = req.body;
+    if (!reason) {
+      res.status(400).json({ success: false, error: 'Reason for unlocking is required.' });
+      return;
+    }
+
+    let unlockedCount = 0;
+    if (deviceHash && deviceRegistry.has(deviceHash)) {
+      const dev = deviceRegistry.get(deviceHash)!;
+      dev.isUnlockedByAdmin = true;
+      dev.unlockedAt = new Date().toISOString();
+      dev.unlockedReason = reason;
+      unlockedCount++;
+    }
+
+    if (mobile) {
+      const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
+      if (phoneRegistry.has(cleanMobile)) {
+        const p = phoneRegistry.get(cleanMobile)!;
+        p.isUnlockedByAdmin = true;
+        p.unlockedAt = new Date().toISOString();
+        p.unlockedReason = reason;
+        unlockedCount++;
+      }
+    }
+
+    // If appeal ID was passed, update appeal status
+    if (req.body.appealId) {
+      const appeal = deviceAppeals.find((a) => a.id === req.body.appealId);
+      if (appeal) {
+        appeal.status = 'approved';
+        appeal.reviewedAt = new Date().toISOString();
+        appeal.reviewNotes = reason;
+      }
+    }
+
+    saveDeviceRegistry();
+
+    adminAuditLogs.unshift({
+      id: `audit_dev_${Date.now()}`,
+      adminId: 'admin_master',
+      adminEmail: adminEmail || 'kumarankush5184@gmail.com',
+      action: 'DEVICE_PHONE_UNLOCKED',
+      targetId: deviceHash || mobile,
+      details: `Admin unlocked device/phone: ${reason}`,
+      timestamp: new Date().toISOString(),
+    });
+
+    res.json({
+      success: true,
+      message: `Successfully approved & unlocked device/phone binding (${unlockedCount} updated).`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Unlock action failed.' });
+  }
+});
+
+// User Device Replacement Appeal (Requirement 14)
+app.post('/api/security/device-appeal', (req: Request, res: Response) => {
+  try {
+    const { mobile, name, reason } = req.body;
+    const cleanMobile = (mobile || '').replace(/[^0-9]/g, '').slice(-10);
+
+    if (cleanMobile.length !== 10 || !reason) {
+      res.status(400).json({ success: false, error: 'Mobile number aur reason dono required hain.' });
+      return;
+    }
+
+    const { deviceHash } = resolveServerDevice(req, req.body);
+    const appealRecord: DeviceAppealRecord = {
+      id: `appeal_${Date.now()}`,
+      mobile: cleanMobile,
+      name: name || `User ${cleanMobile.slice(-4)}`,
+      reason: reason.trim(),
+      deviceHash,
+      submittedAt: new Date().toISOString(),
+      status: 'pending',
+    };
+
+    deviceAppeals.unshift(appealRecord);
+    saveDeviceRegistry();
+
+    res.json({
+      success: true,
+      message: 'Your phone change appeal has been submitted to the admin team for verification and approval.',
+    });
+  } catch {
+    res.status(500).json({ success: false, error: 'Appeal submission failed.' });
+  }
+});
+
+app.get('/api/security/device-appeals', (_req: Request, res: Response) => {
+  res.json({ success: true, appeals: deviceAppeals });
 });
 
 app.get('/api/referrals/team/:uid', (req: Request, res: Response) => {

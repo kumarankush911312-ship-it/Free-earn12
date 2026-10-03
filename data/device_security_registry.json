@@ -1,0 +1,48 @@
+{
+  "updatedAt": "2026-10-03T10:33:12.173Z",
+  "devices": [
+    {
+      "deviceHash": "dev_670c5c2aa62919175d69734a",
+      "cookieToken": "dtk_3f3df4ff34f0288377961fbf64582051",
+      "hardwareHash": "670c5c2aa62919175d69734a",
+      "userId": "user_phone_9822222222",
+      "userMobile": "9822222222",
+      "userEmail": "",
+      "registeredAt": "2026-10-03T10:33:12.173Z",
+      "lastSeenAt": "2026-10-03T10:33:12.173Z",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "TestPhone/1.0 (Android 14; Pixel 8)",
+      "hardwareEntropy": "1080x2400x24|2.75|8|Linux aarch64|5|Asia/Kolkata|Mali-G715",
+      "isUnlockedByAdmin": false
+    }
+  ],
+  "phones": [
+    {
+      "mobile": "9811111111",
+      "userId": "user_phone_9811111111",
+      "deviceHash": "dev_670c5c2aa62919175d69734a",
+      "registeredAt": "2026-10-03T10:33:04.887Z",
+      "isUnlockedByAdmin": false
+    },
+    {
+      "mobile": "9822222222",
+      "userId": "user_phone_9822222222",
+      "deviceHash": "dev_670c5c2aa62919175d69734a",
+      "registeredAt": "2026-10-03T10:33:12.173Z",
+      "isUnlockedByAdmin": false
+    }
+  ],
+  "appeals": [
+    {
+      "id": "appeal_1791023592162",
+      "mobile": "9822222222",
+      "name": "Changed SIM User",
+      "reason": "Purchased this phone second-hand from previous earner, please review and unlock.",
+      "deviceHash": "dev_670c5c2aa62919175d69734a",
+      "submittedAt": "2026-10-03T10:33:12.162Z",
+      "status": "approved",
+      "reviewedAt": "2026-10-03T10:33:12.170Z",
+      "reviewNotes": "Verified proof of phone replacement"
+    }
+  ]
+}
