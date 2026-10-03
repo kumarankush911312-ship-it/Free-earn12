@@ -283,7 +283,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setUser(profile);
           loadUserData(profile.uid).catch(() => {});
         } else {
-          // Check for local stored session (for simulated mobile users)
+          // Check for local stored session (for registered/signed-in users)
           const stored = localStorage.getItem('freeearn_local_user');
           if (stored) {
             try {
@@ -296,31 +296,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               // keep existing user
             }
           } else {
-            // Pre-register and activate official user with requested number: 9113124207
-            const primaryUid = 'user_phone_9113124207';
-            const registeredProfile: UserProfile = {
-              uid: primaryUid,
-              name: 'Ankush Kumar',
-              mobile: '+91 9113124207',
-              email: 'kumarankush5184@gmail.com',
-              referralCode: 'ANKUSH07',
-              coins: 1000, // 1000 Coins welcome credit
-              todayEarnings: 100,
-              totalEarnings: 1000,
-              totalWithdrawn: 0,
-              pendingWithdrawalCoins: 0,
-              level: 'Gold',
-              isBlocked: false,
-              consecutiveCheckIns: 1,
-              adsWatchedToday: 0,
-              createdAt: new Date().toISOString(),
-              isAdmin: true,
-            };
-            setUser(registeredProfile);
-            try {
-              localStorage.setItem('freeearn_local_user', JSON.stringify(registeredProfile));
-            } catch {}
-            loadUserData(primaryUid).catch(() => {});
+            // New visitor: DO NOT log in as anyone! Must show Register/Login screen.
+            setUser(null);
           }
         }
       } catch (err) {
