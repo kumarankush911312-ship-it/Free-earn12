@@ -15,6 +15,7 @@ import { TeamView } from './views/TeamView';
 import { ProfileView } from './views/ProfileView';
 import { AdminView } from './views/AdminView';
 import { AdminPortalView } from './views/AdminPortalView';
+import { AuthView } from './views/AuthView';
 import { AuthModal } from './components/AuthModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
 import { RewardedAdModal } from './components/RewardedAdModal';
@@ -97,26 +98,9 @@ const MainAppContent: React.FC = () => {
     return <AdminPortalView />;
   }
 
-  // Only show loading if there is truly no user profile yet
-  if (authLoading && !user) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
-        <div className="relative">
-          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 flex items-center justify-center text-white shadow-2xl shadow-indigo-600/40 animate-pulse">
-            <Sparkles className="w-8 h-8" />
-          </div>
-        </div>
-        <div className="text-center">
-          <h2 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-purple-200 tracking-wider">
-            FREE EARN
-          </h2>
-          <p className="text-xs text-indigo-300/80 font-medium mt-1">Earn Smart. Earn Daily.</p>
-        </div>
-        <div className="w-48 h-1 bg-slate-900 rounded-full overflow-hidden">
-          <div className="w-full h-full bg-gradient-to-r from-indigo-500 to-purple-500 animate-pulse" />
-        </div>
-      </div>
-    );
+  // If no user profile exists, require Register or Login first!
+  if (!user) {
+    return <AuthView />;
   }
 
   const renderActiveView = () => {

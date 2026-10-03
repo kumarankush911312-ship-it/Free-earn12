@@ -110,7 +110,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const ADMIN_EMAILS = ['kumarankush5184@gmail.com', 'admin@freeearn.app'];
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Synchronous initialization prevents infinite loading screens
+  // User profile: initialized from stored session if present, otherwise null (requires Login/Register)
   const [user, setUser] = useState<UserProfile | null>(() => {
     try {
       const stored = localStorage.getItem('freeearn_local_user');
@@ -119,31 +119,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (parsed && parsed.uid) return parsed;
       }
     } catch {}
-
-    // Default registered active profile for +91 9113124207 (Ankush Kumar)
-    const initialProfile: UserProfile = {
-      uid: 'user_phone_9113124207',
-      name: 'Ankush Kumar',
-      mobile: '+91 9113124207',
-      email: 'kumarankush5184@gmail.com',
-      referralCode: 'ANKUSH07',
-      coins: 1000,
-      todayEarnings: 100,
-      totalEarnings: 1000,
-      totalWithdrawn: 0,
-      pendingWithdrawalCoins: 0,
-      level: 'Gold',
-      isBlocked: false,
-      consecutiveCheckIns: 1,
-      adsWatchedToday: 0,
-      createdAt: '2026-10-01T00:00:00.000Z',
-      isAdmin: true,
-    };
-    try {
-      localStorage.setItem('freeearn_local_user', JSON.stringify(initialProfile));
-      localStorage.setItem(`freeearn_user_${initialProfile.uid}`, JSON.stringify(initialProfile));
-    } catch {}
-    return initialProfile;
+    return null;
   });
 
   const [authLoading, setAuthLoading] = useState<boolean>(false);

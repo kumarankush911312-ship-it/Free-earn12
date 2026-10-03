@@ -18,7 +18,6 @@ import {
   ShieldAlert,
   Headphones,
   CheckCircle2,
-  Download,
 } from 'lucide-react';
 
 interface ProfileViewProps {
@@ -217,30 +216,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
           <ChevronRight className="w-4 h-4 text-slate-400" />
         </button>
-
-        <a
-          href="/api/download-zip"
-          download="free-earn-app-full-source.zip"
-          className="w-full p-3.5 flex items-center justify-between text-left bg-gradient-to-r from-indigo-950/60 to-purple-950/40 hover:from-indigo-900/60 hover:to-purple-900/60 border border-indigo-500/30 rounded-2xl transition-all group"
-        >
-          <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
-              <Download className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-1.5">
-                <h4 className="text-xs font-bold text-white group-hover:text-indigo-300 transition-colors">
-                  Download Full Project (.ZIP)
-                </h4>
-                <span className="text-[9px] bg-emerald-500/20 text-emerald-300 font-bold px-1.5 py-0.5 rounded-full border border-emerald-500/30">
-                  Ready
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-400">Complete React + Node.js + Firebase working source code</p>
-            </div>
-          </div>
-          <Download className="w-4 h-4 text-indigo-400 group-hover:translate-y-0.5 transition-transform" />
-        </a>
 
         <button
           onClick={onOpenAuth}

@@ -17,7 +17,6 @@ import {
   ArrowDownLeft,
   Megaphone,
   ShieldCheck,
-  Download,
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -102,32 +101,6 @@ export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
           </div>
         </div>
       )}
-
-      {/* 📥 1-Click ZIP Download Bar for User App */}
-      <div className="rounded-2xl p-3.5 bg-gradient-to-r from-emerald-950/70 via-indigo-950/60 to-purple-950/70 border border-emerald-500/30 flex items-center justify-between shadow-lg">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30 shadow-inner">
-            <Download className="w-5 h-5 animate-bounce" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-black text-white">Download User App (.ZIP)</span>
-              <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                Live Source
-              </span>
-            </div>
-            <p className="text-[10px] text-slate-300">100% Fully Working • Complete React + Firebase Code</p>
-          </div>
-        </div>
-        <a
-          href="/free-earn-user-app.zip"
-          download="free-earn-user-app.zip"
-          className="btn-3d btn-3d-emerald text-xs font-black px-3.5 py-2 rounded-xl text-white flex items-center space-x-1.5 shrink-0 shadow-md hover:scale-105 active:scale-95 transition-all"
-        >
-          <span>Download</span>
-          <Download className="w-3.5 h-3.5" />
-        </a>
-      </div>
 
       {/* Main Balance & Earnings Hero Card in 3D */}
       <div className="card-3d relative overflow-hidden rounded-3xl p-5 border-t border-purple-400/40 border-b border-indigo-950/80 shadow-2xl">
