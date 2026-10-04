@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { sendMobileOtp, verifyMobileOtp } from '../services/api';
-import { OtpInput } from './OtpInput';
 import { AppealModal } from './AppealModal';
 import {
   X,
@@ -14,10 +13,11 @@ import {
   ArrowRight,
   KeyRound,
   CheckCircle2,
-  RotateCcw,
   Edit2,
   Check,
   AlertTriangle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -26,32 +26,32 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { loginWithGoogle, loginWithEmail, registerWithEmail, loginWithMobile } = useApp();
+  const { loginWithGoogle, loginWithEmail, registerWithEmail, setActiveTab: setAppActiveTab } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'signin' | 'register' | 'mobile'>('signin');
+  const [activeTab, setActiveTab] = useState<'signin' | 'register'>('signin');
 
-  // Sign In state
-  const [signInEmail, setSignInEmail] = useState('');
+  // Sign In state (Mobile Number + Password)
+  const [signInMobile, setSignInMobile] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
+  const [showSignInPassword, setShowSignInPassword] = useState(false);
 
-  // Register state
+  // Register state (Name, Mobile, OTP, Email, Password, Referral)
   const [registerName, setRegisterName] = useState('');
+  const [registerMobile, setRegisterMobile] = useState('');
+  const [registerOtp, setRegisterOtp] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
-  const [registerMobile, setRegisterMobile] = useState('');
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [referralCode, setReferralCode] = useState(() => {
     return localStorage.getItem('freeearn_pending_ref') || '';
   });
-  const [hasReferral, setHasReferral] = useState(() => {
-    return !!localStorage.getItem('freeearn_pending_ref');
-  });
 
-  // Mobile fast login state
-  const [mobileOnly, setMobileOnly] = useState('');
-  const [mobileName, setMobileName] = useState('');
-  const [otpStep, setOtpStep] = useState<'phone' | 'otp'>('phone');
-  const [otpInput, setOtpInput] = useState('');
+  // OTP state
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [isMobileVerified, setIsMobileVerified] = useState(false);
   const [otpCountdown, setOtpCountdown] = useState(0);
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [smsNotification, setSmsNotification] = useState<{ otp: string; phone: string } | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -59,19 +59,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [appealModalOpen, setAppealModalOpen] = useState(false);
 
   // Countdown timer for Resend OTP
-  React.useEffect(() => {
+  useEffect(() => {
     if (otpCountdown > 0) {
       const timer = setTimeout(() => setOtpCountdown((prev) => prev - 1), 1000);
       return () => clearTimeout(timer);
     }
   }, [otpCountdown]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen) {
       const pendingRef = localStorage.getItem('freeearn_pending_ref');
       if (pendingRef) {
         setReferralCode(pendingRef);
-        setHasReferral(true);
         setActiveTab('register');
       }
     }
@@ -79,34 +78,127 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null;
 
-  // Real Email/Password Sign-In
-  const handleEmailSignIn = async (e: React.FormEvent) => {
+  // Send Registration OTP
+  const handleSendRegistrationOtp = async () => {
+    setErrorMessage('');
+    const cleanMobile = registerMobile.replace(/[^0-9]/g, '').slice(-10);
+    if (cleanMobile.length !== 10) {
+      setErrorMessage('Kripya 10-digit valid Mobile Number enter karein.');
+      return;
+    }
+
+    setSendingOtp(true);
+    const res = await sendMobileOtp(cleanMobile, registerName.trim(), 'register');
+    setSendingOtp(false);
+
+    if (res.success) {
+      setIsOtpSent(true);
+      setOtpCountdown(30);
+      if (res.otp) {
+        setSmsNotification({ otp: res.otp, phone: cleanMobile });
+      }
+    } else {
+      setErrorMessage(res.error || 'OTP send failed. Kripya punah koshish karein.');
+    }
+  };
+
+  // Verify Registration OTP
+  const handleVerifyRegistrationOtp = async (codeToVerify?: string) => {
+    setErrorMessage('');
+    const code = (codeToVerify || registerOtp).trim();
+    const cleanMobile = registerMobile.replace(/[^0-9]/g, '').slice(-10);
+
+    if (cleanMobile.length !== 10) {
+      setErrorMessage('Kripya 10-digit mobile number enter karein.');
+      return false;
+    }
+    if (!code || code.length !== 6) {
+      setErrorMessage('Kripya 6-digit OTP code enter karein.');
+      return false;
+    }
+
+    setVerifyingOtp(true);
+    const res = await verifyMobileOtp(cleanMobile, code);
+    setVerifyingOtp(false);
+
+    if (res.success) {
+      setIsMobileVerified(true);
+      return true;
+    } else {
+      setErrorMessage(res.error || 'Galat OTP! Kripya sahi 6-digit code dalein.');
+      return false;
+    }
+  };
+
+  // Sign-In with Mobile + Password
+  const handleMobileSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setLoading(true);
 
-    const res = await loginWithEmail(signInEmail, signInPassword);
+    const cleanMobile = signInMobile.trim();
+    if (!cleanMobile) {
+      setErrorMessage('Kripya apna Mobile Number enter karein.');
+      setLoading(false);
+      return;
+    }
+
+    const res = await loginWithEmail(cleanMobile, signInPassword);
     setLoading(false);
 
     if (res.success) {
       onClose();
     } else {
-      setErrorMessage(res.error || 'Sign in failed');
+      setErrorMessage(res.error || 'Sign in failed. Mobile number ya password galat hai.');
     }
   };
 
-  // Real Email/Password Registration
-  const handleEmailRegister = async (e: React.FormEvent) => {
+  // Registration with Name, Mobile, OTP, Email, Password
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
-    setLoading(true);
 
+    if (!registerName.trim()) {
+      setErrorMessage('Kripya apna Full Name enter karein.');
+      return;
+    }
+
+    const cleanMobile = registerMobile.replace(/[^0-9]/g, '').slice(-10);
+    if (cleanMobile.length !== 10) {
+      setErrorMessage('Kripya 10-digit valid Mobile Number enter karein.');
+      return;
+    }
+
+    if (!isMobileVerified) {
+      if (!isOtpSent) {
+        setErrorMessage('Kripya pehle "Get OTP" par click karein.');
+        return;
+      }
+      if (!registerOtp.trim() || registerOtp.trim().length !== 6) {
+        setErrorMessage('Kripya 6-digit OTP code enter karein.');
+        return;
+      }
+      const verified = await handleVerifyRegistrationOtp(registerOtp.trim());
+      if (!verified) return;
+    }
+
+    if (!registerEmail.trim() || !registerEmail.includes('@')) {
+      setErrorMessage('Kripya ek valid Email address enter karein.');
+      return;
+    }
+
+    if (!registerPassword || registerPassword.length < 6) {
+      setErrorMessage('Password kam se kam 6 characters ka hona chahiye.');
+      return;
+    }
+
+    setLoading(true);
     const res = await registerWithEmail(
-      registerName,
-      registerEmail,
+      registerName.trim(),
+      registerEmail.trim(),
       registerPassword,
-      registerMobile,
-      referralCode
+      cleanMobile,
+      referralCode.trim()
     );
     setLoading(false);
 
@@ -117,88 +209,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  // Step 1: Send OTP to Phone
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage('');
-
-    const clean = mobileOnly.replace(/[^0-9]/g, '');
-    if (clean.length < 10) {
-      setErrorMessage('Kripya 10-digit valid mobile number enter karein.');
-      return;
-    }
-
-    setLoading(true);
-    const mode = (activeTab === 'register' || activeTab === 'mobile') ? 'register' : 'login';
-    const res = await sendMobileOtp(mobileOnly, mobileName, mode);
-    setLoading(false);
-
-    if (res.success) {
-      setOtpStep('otp');
-      setOtpCountdown(30);
-      if (res.otp) {
-        setSmsNotification({ otp: res.otp, phone: clean.slice(-10) });
-      }
-    } else {
-      setErrorMessage(res.error || 'OTP send failed. Kripya punah koshish karein.');
-    }
-  };
-
-  // Step 2: Verify OTP and Login
-  const handleVerifyAndLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage('');
-
-    const clean = mobileOnly.replace(/[^0-9]/g, '');
-    const cleanOtp = otpInput.trim();
-
-    if (cleanOtp.length !== 6) {
-      setErrorMessage('Kripya 6-digit OTP code enter karein.');
-      return;
-    }
-
-    setLoading(true);
-    const verifyRes = await verifyMobileOtp(mobileOnly, cleanOtp);
-    if (!verifyRes.success) {
-      setLoading(false);
-      setErrorMessage(verifyRes.error || 'Galat OTP! Kripya check karke punah dalein.');
-      return;
-    }
-
-    // OTP Verified! Log user in
-    const res = await loginWithMobile(
-      mobileName.trim() || `Earner ${clean.slice(-4)}`,
-      mobileOnly,
-      referralCode
-    );
-    setLoading(false);
-
-    if (res.success) {
-      onClose();
-    } else {
-      setErrorMessage(res.error || 'Mobile sign in failed');
-    }
-  };
-
-  const handleResendOtp = async () => {
-    if (otpCountdown > 0) return;
-    setErrorMessage('');
-    setLoading(true);
-    const mode = (activeTab === 'register' || activeTab === 'mobile') ? 'register' : 'login';
-    const res = await sendMobileOtp(mobileOnly, mobileName, mode);
-    setLoading(false);
-
-    if (res.success) {
-      setOtpCountdown(30);
-      if (res.otp) {
-        setSmsNotification({ otp: res.otp, phone: mobileOnly.replace(/[^0-9]/g, '').slice(-10) });
-      }
-    } else {
-      setErrorMessage(res.error || 'Resend failed.');
-    }
-  };
-
-  // Real Google Sign-In with Firebase
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMessage('');
@@ -214,82 +224,57 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
-      <div className="relative w-full max-w-md bg-slate-900 border border-indigo-500/30 rounded-3xl p-6 shadow-2xl shadow-indigo-950/80 overflow-hidden">
-        {/* Ambient glow */}
-        <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
-
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
+      <div className="relative w-full max-w-md bg-slate-900 border border-indigo-500/30 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-full bg-slate-800/60 hover:bg-slate-800 transition-colors"
+          className="absolute top-4 right-4 p-2 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
 
-        {/* Brand Header */}
-        <div className="flex items-center space-x-3 mb-4">
-          <div className="w-12 h-12 rounded-2xl p-0.5 bg-gradient-to-tr from-amber-400 via-purple-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/40">
-            <img src="/app-icon.svg" alt="Free Earn 3D App Icon" className="w-full h-full rounded-[14px] object-cover" />
+        {/* Header Branding & Admin Link */}
+        <div className="text-center mb-5">
+          <div className="inline-flex w-14 h-14 p-0.5 rounded-2xl bg-gradient-to-tr from-amber-400 via-purple-600 to-indigo-600 items-center justify-center shadow-lg shadow-indigo-600/40 mb-2">
+            <img src="/app-icon.svg" alt="Free Earn" className="w-full h-full rounded-[14px] object-cover" />
           </div>
-          <div>
-            <h2 className="text-xl font-extrabold text-white flex items-center space-x-1.5">
-              <span>Free Earn</span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                Real Firebase Auth
-              </span>
-            </h2>
-            <p className="text-xs text-indigo-300/80">Earn Smart. Earn Daily.</p>
-          </div>
+          <h3 className="text-xl font-black text-white tracking-tight">FREE EARN</h3>
+          <p className="text-xs text-indigo-300">Earn Daily & Instant UPI Withdrawals</p>
         </div>
 
-        {/* Tabs: Sign In / Create Account / Mobile */}
-        <div className="grid grid-cols-3 p-1 bg-slate-950/80 border border-indigo-900/40 rounded-2xl mb-4 text-xs font-bold">
+        {/* Tab Selection: Exactly TWO Tabs */}
+        <div className="grid grid-cols-2 p-1 bg-slate-950/80 border border-indigo-900/40 rounded-2xl mb-4 text-xs font-bold">
           <button
             type="button"
             onClick={() => {
               setActiveTab('signin');
               setErrorMessage('');
             }}
-            className={`py-2 px-2 rounded-xl transition-all flex items-center justify-center space-x-1 ${
+            className={`py-2 px-3 rounded-xl transition-all flex items-center justify-center space-x-1.5 ${
               activeTab === 'signin'
                 ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Lock className="w-3.5 h-3.5" />
-            <span>Sign In</span>
+            <Lock className="w-3.5 h-3.5 text-indigo-300" />
+            <span>Sign In (लॉगिन)</span>
           </button>
+
           <button
             type="button"
             onClick={() => {
               setActiveTab('register');
               setErrorMessage('');
             }}
-            className={`py-2 px-2 rounded-xl transition-all flex items-center justify-center space-x-1 ${
+            className={`py-2 px-3 rounded-xl transition-all flex items-center justify-center space-x-1.5 ${
               activeTab === 'register'
-                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Register</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('mobile');
-              setErrorMessage('');
-            }}
-            className={`py-2 px-2 rounded-xl transition-all flex items-center justify-center space-x-1 ${
-              activeTab === 'mobile'
-                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Phone className="w-3.5 h-3.5" />
-            <span>Mobile</span>
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span>Register (नया खाता)</span>
           </button>
         </div>
 
@@ -298,484 +283,318 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           <div className="mb-4">
             {errorMessage === 'This device or mobile number is already registered.' ||
             errorMessage.includes('already registered') ? (
-              <div className="p-3.5 bg-rose-950/80 border border-rose-500/50 rounded-2xl text-left space-y-2 shadow-lg shadow-rose-950/50 animate-in fade-in">
+              <div className="p-3 bg-rose-950/80 border border-rose-500/50 rounded-2xl text-left space-y-2">
                 <div className="flex items-center space-x-2 text-rose-300 font-extrabold text-xs">
                   <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
                   <span>This device or mobile number is already registered.</span>
                 </div>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Strict Security Policy: 1 Physical Phone + 1 Mobile Number = 1 Account. Creating multiple accounts on the same phone is prohibited.
+                <p className="text-[11px] text-slate-300">
+                  Strict Rule: 1 Phone + 1 Mobile = 1 Account.
                 </p>
                 <div className="flex items-center space-x-2 pt-1">
                   <button
                     type="button"
                     onClick={() => {
                       setActiveTab('signin');
+                      if (registerMobile) setSignInMobile(registerMobile);
                       setErrorMessage('');
                     }}
-                    className="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-[11px] shadow-md shadow-indigo-600/30 flex items-center justify-center space-x-1.5 transition-all active:scale-95"
+                    className="flex-1 py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs"
                   >
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>Login with Account</span>
+                    Login with Account
                   </button>
                   <button
                     type="button"
                     onClick={() => setAppealModalOpen(true)}
-                    className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold border border-slate-700 transition-all shrink-0"
+                    className="py-1.5 px-3 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold border border-slate-700"
                   >
                     Replaced Phone?
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs space-y-2">
-                <div className="flex items-center space-x-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
-                  <span>{errorMessage}</span>
-                </div>
-                {(errorMessage.toLowerCase().includes('google') || errorMessage.toLowerCase().includes('popup')) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('mobile');
-                      setErrorMessage('');
-                    }}
-                    className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition-all text-center block shadow-md"
-                  >
-                    👉 Use Fast Mobile Number Login
-                  </button>
-                )}
+              <div className="p-2.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-semibold">
+                {errorMessage}
               </div>
             )}
           </div>
         )}
 
-        {/* ================= TAB 1: REAL EMAIL/PASSWORD SIGN IN ================= */}
+        {/* TAB 1: Sign In with Mobile Number + Password */}
         {activeTab === 'signin' && (
-          <form onSubmit={handleEmailSignIn} className="space-y-3.5">
+          <form onSubmit={handleMobileSignIn} className="space-y-3.5">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Email Address
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                Registered Mobile Number / मोबाइल नंबर
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <input
-                  type="email"
-                  required
-                  placeholder="your.email@example.com"
-                  value={signInEmail}
-                  onChange={(e) => setSignInEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-slate-950/70 border border-indigo-900/50 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <KeyRound className="w-4 h-4" />
-                </div>
-                <input
-                  type="password"
-                  required
-                  placeholder="Enter your password"
-                  value={signInPassword}
-                  onChange={(e) => setSignInPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-slate-950/70 border border-indigo-900/50 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn-3d btn-3d-emerald w-full py-2.5 px-4 rounded-xl text-white font-black text-xs shadow-xl flex items-center justify-center space-x-2"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{loading ? 'Authenticating with Firebase...' : 'Sign In'}</span>
-            </button>
-          </form>
-        )}
-
-        {/* ================= TAB 2: REAL EMAIL/PASSWORD REGISTRATION ================= */}
-        {activeTab === 'register' && (
-          <form onSubmit={handleEmailRegister} className="space-y-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Full Name
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <User className="w-4 h-4" />
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center space-x-1 text-slate-400 text-xs font-bold pointer-events-none">
+                  <Phone className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>+91</span>
                 </div>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Rahul Sharma"
-                  value={registerName}
-                  onChange={(e) => setRegisterName(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-slate-950/70 border border-indigo-900/50 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  placeholder="10-digit Mobile Number"
+                  value={signInMobile}
+                  onChange={(e) => setSignInMobile(e.target.value)}
+                  className="w-full pl-16 pr-4 py-2.5 bg-slate-950/80 border border-slate-700 rounded-xl text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Email Address
-              </label>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">Password / पासवर्ड 🔑</label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Mail className="w-4 h-4" />
-                </div>
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
-                  type="email"
+                  type={showSignInPassword ? 'text' : 'password'}
                   required
-                  placeholder="your.email@example.com"
-                  value={registerEmail}
-                  onChange={(e) => setRegisterEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-slate-950/70 border border-indigo-900/50 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  placeholder="Apna Password Dalein"
+                  value={signInPassword}
+                  onChange={(e) => setSignInPassword(e.target.value)}
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-950/80 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowSignInPassword((p) => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                >
+                  {showSignInPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Password
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <KeyRound className="w-3.5 h-3.5" />
-                  </div>
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    placeholder="Min 6 chars"
-                    value={registerPassword}
-                    onChange={(e) => setRegisterPassword(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 bg-slate-950/70 border border-indigo-900/50 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Mobile (UPI/Payout)
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <Phone className="w-3.5 h-3.5" />
-                  </div>
-                  <input
-                    type="tel"
-                    placeholder="9876543210"
-                    value={registerMobile}
-                    onChange={(e) => setRegisterMobile(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 bg-slate-950/70 border border-indigo-900/50 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Referral code accordion */}
-            <div>
-              <button
-                type="button"
-                onClick={() => setHasReferral(!hasReferral)}
-                className="text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold flex items-center space-x-1"
-              >
-                <Gift className="w-3.5 h-3.5" />
-                <span>{hasReferral ? 'Remove referral code' : 'Have a friend’s referral code? (+50 Coins bonus)'}</span>
-              </button>
-
-              {hasReferral && (
-                <div className="mt-1.5">
-                  <input
-                    type="text"
-                    placeholder="Enter code (e.g. FE7489A)"
-                    value={referralCode}
-                    onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                    className="w-full px-3 py-1.5 bg-slate-950/70 border border-indigo-900/50 rounded-xl text-xs text-white placeholder-slate-500 uppercase tracking-wider focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              )}
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="btn-3d btn-3d-purple w-full py-2.5 px-4 rounded-xl text-white font-black text-xs shadow-xl flex items-center justify-center space-x-2"
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-extrabold shadow-md flex items-center justify-center space-x-2"
             >
-              <Sparkles className="w-4 h-4" />
-              <span>{loading ? 'Creating Real Account...' : 'Create Account & Get 100 Coins'}</span>
+              {loading ? <span>Signing In...</span> : <span>Sign In with Mobile</span>}
             </button>
           </form>
         )}
 
-        {/* ================= TAB 3: REAL MOBILE AUTH WITH 2-STEP OTP ================= */}
-        {activeTab === 'mobile' && (
-          <div className="space-y-3.5">
-            {/* Real-time SMS Notification Simulation Banner */}
-            {smsNotification && (
-              <div className="p-3 bg-gradient-to-r from-emerald-950/90 to-teal-950/90 border border-emerald-500/50 rounded-2xl space-y-1.5 shadow-lg shadow-emerald-950/40 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-1 text-emerald-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                    <span className="text-[10px] font-black uppercase tracking-wider">SMS from FREE-EARN</span>
+        {/* TAB 2: Register Form (Name, Mobile, OTP, Email, Password, Referral) */}
+        {activeTab === 'register' && (
+          <form onSubmit={handleRegisterSubmit} className="space-y-3">
+            {/* 1. Name */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">Full Name / पूरा नाम</label>
+              <div className="relative">
+                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  required
+                  placeholder="Apna Pura Naam"
+                  value={registerName}
+                  onChange={(e) => setRegisterName(e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 bg-slate-950/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            {/* 2. Mobile Number + Get OTP */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-slate-300">Mobile Number</label>
+                {isMobileVerified && (
+                  <span className="text-[10px] font-extrabold text-emerald-400 flex items-center space-x-0.5">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    <span>Verified</span>
+                  </span>
+                )}
+              </div>
+              <div className="flex space-x-2">
+                <div className="relative flex-1">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center space-x-1 text-slate-400 text-xs font-bold pointer-events-none">
+                    <Phone className="w-3 h-3 text-indigo-400" />
+                    <span>+91</span>
                   </div>
-                  <span className="text-[9px] text-slate-400 font-mono">Just Now</span>
+                  <input
+                    type="tel"
+                    required
+                    maxLength={10}
+                    disabled={isMobileVerified}
+                    placeholder="10-digit Number"
+                    value={registerMobile}
+                    onChange={(e) => {
+                      setRegisterMobile(e.target.value.replace(/[^0-9]/g, ''));
+                      if (isMobileVerified) setIsMobileVerified(false);
+                      if (isOtpSent) setIsOtpSent(false);
+                    }}
+                    className="w-full pl-14 pr-2 py-2 bg-slate-950/80 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
-                <p className="text-[11px] text-slate-200">
-                  Your OTP code is{' '}
-                  <strong className="text-emerald-300 font-mono text-sm tracking-widest bg-emerald-900/60 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                    {smsNotification.otp}
-                  </strong>
-                  .
-                </p>
+                {!isMobileVerified ? (
+                  <button
+                    type="button"
+                    onClick={handleSendRegistrationOtp}
+                    disabled={sendingOtp || otpCountdown > 0 || registerMobile.length < 10}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                      registerMobile.length >= 10 && otpCountdown === 0
+                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {sendingOtp ? 'Sending...' : otpCountdown > 0 ? `${otpCountdown}s` : 'Get OTP'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileVerified(false);
+                      setIsOtpSent(false);
+                    }}
+                    className="px-2 py-1 bg-slate-800 text-indigo-300 text-xs rounded-xl"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* OTP Simulation SMS */}
+            {smsNotification && isOtpSent && !isMobileVerified && (
+              <div className="p-2.5 bg-emerald-950/90 border border-emerald-500/50 rounded-xl space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-emerald-400 font-bold text-[10px]">
+                  <span>SMS from FREE-EARN</span>
+                  <span className="font-mono">OTP: {smsNotification.otp}</span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setOtpInput(smsNotification.otp)}
-                  className="w-full py-1 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold flex items-center justify-center space-x-1 transition-all"
+                  onClick={() => {
+                    setRegisterOtp(smsNotification.otp);
+                    handleVerifyRegistrationOtp(smsNotification.otp);
+                  }}
+                  className="w-full py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold"
                 >
-                  <Check className="w-3 h-3" />
-                  <span>Tap to Auto-Fill OTP ({smsNotification.otp})</span>
+                  Tap to Auto-Fill & Verify OTP ({smsNotification.otp})
                 </button>
               </div>
             )}
 
-            {otpStep === 'phone' ? (
-              <form onSubmit={handleSendOtp} className="space-y-3.5">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Your Name
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                      <User className="w-4 h-4" />
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. Rahul Sharma"
-                      value={mobileName}
-                      onChange={(e) => setMobileName(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-950/70 border border-indigo-900/50 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    10-Digit Mobile Number
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                      <Phone className="w-4 h-4" />
-                    </div>
-                    <input
-                      type="tel"
-                      required
-                      placeholder="+91 98765 43210"
-                      maxLength={10}
-                      value={mobileOnly}
-                      onChange={(e) => setMobileOnly(e.target.value.replace(/[^0-9]/g, ''))}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-950/70 border border-indigo-900/50 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono tracking-wider"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="btn-3d btn-3d-emerald w-full py-2.5 px-4 rounded-xl text-white font-black text-xs shadow-xl flex items-center justify-center space-x-2"
-                >
-                  {loading ? (
-                    <span>Sending OTP...</span>
-                  ) : (
-                    <>
-                      <Phone className="w-4 h-4" />
-                      <span>Send OTP to Phone</span>
-                    </>
-                  )}
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleVerifyAndLogin} className="space-y-3.5 animate-in fade-in duration-200">
-                <div className="p-2.5 bg-slate-950/70 border border-indigo-900/40 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-semibold">OTP Sent To:</span>
-                      <span className="text-xs font-bold text-white font-mono">
-                        +91 {mobileOnly.slice(-10)}
-                      </span>
-                    </div>
-                  </div>
+            {/* OTP Input */}
+            {isOtpSent && !isMobileVerified && (
+              <div className="p-2.5 bg-slate-950/90 border border-indigo-900/50 rounded-xl space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-300">Enter 6-Digit OTP</label>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="6-digit OTP"
+                    value={registerOtp}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9]/g, '');
+                      setRegisterOtp(val);
+                      if (val.length === 6) handleVerifyRegistrationOtp(val);
+                    }}
+                    className="flex-1 px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-center font-mono text-sm text-amber-300"
+                  />
                   <button
                     type="button"
-                    onClick={() => {
-                      setOtpStep('phone');
-                      setErrorMessage('');
-                    }}
-                    className="py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[10px] font-bold flex items-center space-x-1"
+                    onClick={() => handleVerifyRegistrationOtp(registerOtp)}
+                    disabled={verifyingOtp || registerOtp.length !== 6}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg"
                   >
-                    <Edit2 className="w-3 h-3" />
-                    <span>Change</span>
+                    Verify
                   </button>
                 </div>
-
-                <div className="py-1">
-                  <label className="text-[11px] font-bold text-slate-300 flex items-center space-x-1.5 mb-2.5">
-                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Enter 6-Digit Verification Code</span>
-                  </label>
-
-                  <OtpInput
-                    length={6}
-                    value={otpInput}
-                    onChange={(val) => {
-                      setOtpInput(val);
-                      if (errorMessage) setErrorMessage('');
-                    }}
-                    onComplete={(code) => {
-                      setOtpInput(code);
-                    }}
-                    countdownSeconds={30}
-                    onResend={handleResendOtp}
-                    disabled={loading}
-                    error={errorMessage}
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading || otpInput.trim().length !== 6}
-                  className={`w-full py-2.5 px-4 rounded-xl text-white font-black text-xs shadow-xl flex items-center justify-center space-x-2 transition-all ${
-                    otpInput.trim().length === 6
-                      ? 'btn-3d btn-3d-emerald cursor-pointer'
-                      : 'bg-slate-800 text-slate-400 cursor-not-allowed opacity-70'
-                  }`}
-                >
-                  {loading ? (
-                    <span>Verifying Code...</span>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Verify OTP & Sign In</span>
-                    </>
-                  )}
-                </button>
-              </form>
+              </div>
             )}
-          </div>
+
+            {/* 3. Email */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">Email Address / ईमेल</label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="email"
+                  required
+                  placeholder="name@gmail.com"
+                  value={registerEmail}
+                  onChange={(e) => setRegisterEmail(e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 bg-slate-950/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            {/* 4. Password */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">Password / पासवर्ड 🔑</label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type={showRegisterPassword ? 'text' : 'password'}
+                  required
+                  placeholder="Minimum 6 characters"
+                  value={registerPassword}
+                  onChange={(e) => setRegisterPassword(e.target.value)}
+                  className="w-full pl-10 pr-10 py-2 bg-slate-950/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowRegisterPassword((p) => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                >
+                  {showRegisterPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* 5. Referral Code */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                Referral Code (Optional) <span className="text-emerald-400">+50 Coins</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. ANKUSH07"
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                className="w-full px-3 py-2 bg-slate-950/80 border border-indigo-900/50 rounded-xl text-xs font-mono text-indigo-300 uppercase focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 text-white text-xs font-extrabold shadow-md flex items-center justify-center space-x-1.5"
+            >
+              {loading ? <span>Creating Account...</span> : <span>Register & Start Earning</span>}
+            </button>
+          </form>
         )}
 
-        {/* Bottom Switcher: Login Button & Register Button */}
-        <div className="pt-2">
-          {activeTab === 'register' && (
-            <div className="p-2.5 bg-slate-950/70 border border-indigo-900/40 rounded-xl flex items-center justify-between">
-              <span className="text-[11px] text-slate-300">Already registered?</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('signin');
-                  setErrorMessage('');
-                }}
-                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-1"
-              >
-                <Lock className="w-3 h-3" />
-                <span>Login Button</span>
-              </button>
-            </div>
-          )}
-
-          {activeTab === 'signin' && (
-            <div className="p-2.5 bg-slate-950/70 border border-purple-900/40 rounded-xl flex items-center justify-between">
-              <span className="text-[11px] text-slate-300">Don't have an account?</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('register');
-                  setErrorMessage('');
-                }}
-                className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-1"
-              >
-                <Sparkles className="w-3 h-3" />
-                <span>Register Button</span>
-              </button>
-            </div>
-          )}
-
-          {activeTab === 'mobile' && (
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('signin');
-                  setErrorMessage('');
-                }}
-                className="py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs flex items-center justify-center space-x-1"
-              >
-                <Lock className="w-3 h-3 text-indigo-400" />
-                <span>Login Button</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('register');
-                  setErrorMessage('');
-                }}
-                className="py-1.5 px-2 rounded-lg bg-purple-700 hover:bg-purple-600 text-white font-semibold text-xs flex items-center justify-center space-x-1"
-              >
-                <Sparkles className="w-3 h-3 text-yellow-300" />
-                <span>Register Button</span>
-              </button>
-            </div>
-          )}
+        {/* Google Sign In */}
+        <div className="mt-4 pt-3 border-t border-slate-800">
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            className="w-full py-2 px-3 bg-slate-950 border border-slate-700 rounded-xl text-xs font-bold text-white flex items-center justify-center space-x-2"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+              />
+            </svg>
+            <span>Continue with Google</span>
+          </button>
         </div>
-
-        {/* Divider */}
-        <div className="relative my-4">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-slate-800" />
-          </div>
-          <div className="relative flex justify-center text-[10px] uppercase font-bold text-slate-500 bg-slate-900 px-2">
-            Or Real Google Account
-          </div>
-        </div>
-
-        {/* Real Google Sign-in */}
-        <button
-          type="button"
-          onClick={handleGoogleSignIn}
-          disabled={loading}
-          className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-xs transition-colors flex items-center justify-center space-x-2.5"
-        >
-          <svg className="w-4 h-4" viewBox="0 0 24 24">
-            <path
-              fill="#4285F4"
-              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-            />
-            <path
-              fill="#34A853"
-              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-            />
-            <path
-              fill="#FBBC05"
-              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-            />
-            <path
-              fill="#EA4335"
-              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-            />
-          </svg>
-          <span>Continue with Google</span>
-        </button>
       </div>
 
       {/* Replaced Phone Appeal Modal */}
@@ -783,7 +602,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         isOpen={appealModalOpen}
         onClose={() => setAppealModalOpen(false)}
         mode="replaced_phone"
-        initialMobile={mobileOnly}
+        initialMobile={registerMobile || signInMobile}
       />
     </div>
   );

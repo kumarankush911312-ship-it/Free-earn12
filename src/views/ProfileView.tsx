@@ -229,7 +229,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <h4 className="text-xs font-bold text-white group-hover:text-indigo-300 transition-colors">
                 Switch / Register Another Account
               </h4>
-              <p className="text-[10px] text-slate-400">Login with email, phone, or test a new referral registration</p>
+              <p className="text-[10px] text-slate-400">Login with mobile, email, or test a new registration</p>
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-slate-400" />

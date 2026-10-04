@@ -39,6 +39,9 @@ import {
   generateReferralCode,
   generateId,
   backendAuthLogin,
+  passwordLogin,
+  getLocalItem,
+  setLocalItem,
 } from '../services/api';
 import { DEFAULT_SETTINGS } from '../services/seedData';
 import { auth, db } from '../firebase';
@@ -76,6 +79,7 @@ interface AppContextType {
   // Real User Auth Actions (100% Real Firebase - No Demo)
   loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   loginWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithPassword: (identifier: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   registerWithEmail: (name: string, email: string, pass: string, mobile?: string, referralCode?: string) => Promise<{ success: boolean; error?: string }>;
   loginWithMobile: (name: string, mobile: string, referralCode?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
@@ -266,30 +270,52 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       try {
+        // 1. ALWAYS prioritize active session user from local storage
+        const stored = localStorage.getItem('freeearn_local_user');
+        let sessionUser: UserProfile | null = null;
+        if (stored) {
+          try {
+            sessionUser = JSON.parse(stored) as UserProfile;
+          } catch {}
+        }
+
+        if (sessionUser && sessionUser.uid) {
+          const updatedProfile = await getUserProfile(sessionUser.uid);
+          const safeCoins = Math.max(sessionUser.coins || 0, updatedProfile?.coins || 0);
+          const safeTotal = Math.max(sessionUser.totalEarnings || 0, updatedProfile?.totalEarnings || 0);
+          const activeProfile: UserProfile = {
+            ...(updatedProfile || sessionUser),
+            coins: safeCoins,
+            totalEarnings: safeTotal,
+          };
+          setUser(activeProfile);
+          localStorage.setItem('freeearn_local_user', JSON.stringify(activeProfile));
+          setLocalItem(`freeearn_user_${activeProfile.uid}`, activeProfile);
+          loadUserData(activeProfile.uid).catch(() => {});
+          return;
+        }
+
+        // 2. If Firebase user logged in (e.g. Google or Firebase session)
         if (firebaseUser) {
-          // If the signed-in Firebase user is the app owner (admin email),
-          // do NOT auto-login to the regular user app! Sign out so Register / Login page shows.
-          const isAdminEmail = Boolean(firebaseUser.email && ADMIN_EMAILS.includes(firebaseUser.email.toLowerCase()));
-          const isAtAdminRoute = window.location.hash.includes('admin') || window.location.pathname.includes('admin');
-          
-          if (isAdminEmail && !isAtAdminRoute) {
-            await signOut(auth);
-            localStorage.removeItem('freeearn_local_user');
-            setUser(null);
-            return;
-          }
-
-          // If a referral link is being visited, always present a clean Register screen
-          if (window.location.search.includes('ref=') || window.location.hash.includes('ref=')) {
-            await signOut(auth);
-            localStorage.removeItem('freeearn_local_user');
-            setUser(null);
-            return;
-          }
-
           let profile = await getUserProfile(firebaseUser.uid);
+          if (!profile && firebaseUser.email) {
+            profile = await getUserProfile(firebaseUser.email);
+          }
+
           if (!profile) {
-            // Create initial user profile
+            const allUsers = await getAllUsers();
+            profile =
+              allUsers.find(
+                (u) =>
+                  (firebaseUser.email && u.email?.toLowerCase() === firebaseUser.email.toLowerCase()) ||
+                  (firebaseUser.phoneNumber &&
+                    u.mobile?.replace(/[^0-9]/g, '').slice(-10) ===
+                      firebaseUser.phoneNumber.replace(/[^0-9]/g, '').slice(-10))
+              ) || null;
+          }
+
+          if (!profile) {
+            // Create initial user profile only if user has never existed before
             const newReferralCode = generateReferralCode();
             profile = {
               uid: firebaseUser.uid,
@@ -320,35 +346,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             });
           }
           setUser(profile);
+          localStorage.setItem('freeearn_local_user', JSON.stringify(profile));
+          setLocalItem(`freeearn_user_${profile.uid}`, profile);
           loadUserData(profile.uid).catch(() => {});
         } else {
-          // Check for local stored session (for registered/signed-in users)
-          const stored = localStorage.getItem('freeearn_local_user');
-          if (stored) {
-            try {
-              const parsed = JSON.parse(stored) as UserProfile;
-              if (
-                parsed &&
-                (parsed.uid === 'user_phone_9113124207' ||
-                  parsed.mobile?.includes('9113124207') ||
-                  parsed.name === 'Ankush Kumar' ||
-                  parsed.email?.toLowerCase() === 'kumarankush5184@gmail.com')
-              ) {
-                localStorage.removeItem('freeearn_local_user');
-                setUser(null);
-                return;
-              }
-              const updatedProfile = await getUserProfile(parsed.uid);
-              const activeProfile = updatedProfile || parsed;
-              setUser(activeProfile);
-              loadUserData(activeProfile.uid).catch(() => {});
-            } catch {
-              setUser(null);
-            }
-          } else {
-            // New visitor: DO NOT log in as anyone! Must show Register/Login screen.
-            setUser(null);
-          }
+          // New visitor: DO NOT log in as anyone! Must show Register/Login screen.
+          setUser(null);
         }
       } catch (err) {
         console.warn('Auth state notice:', err);
@@ -610,69 +613,133 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // 2. Real Email & Password Sign In (Fail-safe against disabled console providers)
-  const loginWithEmail = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
+  // 2. Real Mobile & Email Password Sign In (Server Authoritative & Fast)
+  const loginWithEmail = async (identifier: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      if (!email.trim() || !pass) {
-        return { success: false, error: 'Kripya Email aur Password enter karein.' };
+      const cleanId = (identifier || '').trim();
+      const cleanPass = (pass || '').trim();
+      if (!cleanId || !cleanPass) {
+        return { success: false, error: 'Kripya Mobile number aur Password dono enter karein.' };
       }
 
-      const cleanEmail = email.trim().toLowerCase();
-      let fbUser: any = null;
+      // Try Backend Password Login first (supports 10-digit mobile number or email)
+      const res = await passwordLogin(cleanId, cleanPass);
+      if (res.success && res.user) {
+        // Read any previously earned coins cached for this UID or phone so coins never reset
+        const existingLocal = getLocalItem<UserProfile | null>(`freeearn_user_${res.user.uid}`, null);
+        const storedLocal = getLocalItem<UserProfile | null>('freeearn_local_user', null);
 
-      try {
-        const res = await signInWithEmailAndPassword(auth, cleanEmail, pass);
-        fbUser = res.user;
-      } catch (authErr: any) {
-        console.warn('Firebase Auth sign in notice:', authErr?.message);
-        if (authErr?.code === 'auth/wrong-password' || authErr?.code === 'auth/invalid-credential') {
-          return { success: false, error: 'Incorrect email or password. Kripya check karein.' };
-        }
-      }
+        const safeCoins = Math.max(
+          res.user.coins || 0,
+          existingLocal?.coins || 0,
+          (storedLocal && (storedLocal.uid === res.user.uid || storedLocal.mobile?.slice(-10) === res.user.mobile?.slice(-10)))
+            ? (storedLocal.coins || 0)
+            : 0
+        );
+        const safeTotal = Math.max(
+          res.user.totalEarnings || 0,
+          existingLocal?.totalEarnings || 0,
+          (storedLocal && (storedLocal.uid === res.user.uid || storedLocal.mobile?.slice(-10) === res.user.mobile?.slice(-10)))
+            ? (storedLocal.totalEarnings || 0)
+            : 0
+        );
 
-      const uid = fbUser ? fbUser.uid : `user_email_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`;
-      let profile = await getUserProfile(uid);
-
-      if (!profile) {
-        // If not found, create official verified profile
-        const isUserAdmin = ADMIN_EMAILS.includes(cleanEmail);
-        profile = {
-          uid,
-          name: cleanEmail.split('@')[0],
-          email: cleanEmail,
-          mobile: '',
-          referralCode: isUserAdmin ? 'ADMIN01' : generateReferralCode(),
-          referredBy: '',
-          coins: isUserAdmin ? 10000 : 100,
-          todayEarnings: isUserAdmin ? 10000 : 100,
-          totalEarnings: isUserAdmin ? 10000 : 100,
-          totalWithdrawn: 0,
-          pendingWithdrawalCoins: 0,
-          level: isUserAdmin ? 'Diamond' : 'Bronze',
-          isBlocked: false,
-          consecutiveCheckIns: 0,
-          adsWatchedToday: 0,
-          createdAt: new Date().toISOString(),
-          isAdmin: isUserAdmin,
+        const profile: UserProfile = {
+          ...res.user,
+          coins: safeCoins,
+          totalEarnings: safeTotal,
         };
-        try {
-          await createUserProfile(profile);
-        } catch {}
+
+        if (safeCoins > (res.user.coins || 0)) {
+          updateUserProfile(res.user.uid, { coins: safeCoins, totalEarnings: safeTotal }).catch(() => {});
+        }
+
+        setUser(profile);
+        localStorage.setItem('freeearn_local_user', JSON.stringify(profile));
+        setLocalItem(`freeearn_user_${profile.uid}`, profile);
+        loadUserData(profile.uid).catch(() => {});
+        triggerConfetti();
+        addNotification('Signed In', `Welcome back ${profile.name}!`, 'system');
+        return { success: true };
       }
 
-      setUser(profile);
-      localStorage.setItem('freeearn_local_user', JSON.stringify(profile));
-      loadUserData(uid).catch(() => {});
-      triggerConfetti();
-      addNotification('Signed In', `Welcome back ${profile.name}!`, 'system');
-      return { success: true };
+      // If backend returned a clear error (e.g., incorrect password, or blocked), report it directly
+      if (res.error && !res.error.toLowerCase().includes('not found') && !res.error.toLowerCase().includes('registered nahi')) {
+        return { success: false, error: res.error };
+      }
+
+      // Fallback: If identifier is an email, check Firebase Auth
+      if (cleanId.includes('@')) {
+        const cleanEmail = cleanId.toLowerCase();
+        let fbUser: any = null;
+
+        try {
+          const fbRes = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+          fbUser = fbRes.user;
+        } catch (authErr: any) {
+          console.warn('Firebase Auth sign in notice:', authErr?.message);
+          if (authErr?.code === 'auth/wrong-password' || authErr?.code === 'auth/invalid-credential') {
+            return { success: false, error: 'Incorrect email or password. Kripya check karein.' };
+          }
+        }
+
+        const uid = fbUser ? fbUser.uid : `user_email_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`;
+        let profile = await getUserProfile(uid);
+        if (!profile) {
+          profile = await getUserProfile(cleanEmail);
+        }
+
+        if (!profile) {
+          const allUsers = await getAllUsers();
+          profile = allUsers.find((u) => u.email?.toLowerCase() === cleanEmail) || null;
+        }
+
+        if (!profile) {
+          const isUserAdmin = ADMIN_EMAILS.includes(cleanEmail);
+          profile = {
+            uid,
+            name: cleanEmail.split('@')[0],
+            email: cleanEmail,
+            mobile: '',
+            password: cleanPass,
+            referralCode: isUserAdmin ? 'ADMIN01' : generateReferralCode(),
+            referredBy: '',
+            coins: isUserAdmin ? 10000 : 100,
+            todayEarnings: isUserAdmin ? 10000 : 100,
+            totalEarnings: isUserAdmin ? 10000 : 100,
+            totalWithdrawn: 0,
+            pendingWithdrawalCoins: 0,
+            level: isUserAdmin ? 'Diamond' : 'Bronze',
+            isBlocked: false,
+            consecutiveCheckIns: 0,
+            adsWatchedToday: 0,
+            createdAt: new Date().toISOString(),
+            isAdmin: isUserAdmin,
+          };
+          try {
+            await createUserProfile(profile);
+          } catch {}
+        }
+
+        setUser(profile);
+        localStorage.setItem('freeearn_local_user', JSON.stringify(profile));
+        loadUserData(uid).catch(() => {});
+        triggerConfetti();
+        addNotification('Signed In', `Welcome back ${profile.name}!`, 'system');
+        return { success: true };
+      }
+
+      return {
+        success: false,
+        error: res.error || 'Yeh Mobile number registered nahi hai. Kripya naya account Register karein.',
+      };
     } catch (err: unknown) {
-      console.error('Email sign in error:', err);
+      console.error('Sign in error:', err);
       return { success: false, error: err instanceof Error ? err.message : 'Sign in failed' };
     }
   };
 
-  // 3. Real Email & Password Registration (Guaranteed to succeed, creates real profile + 100 Coins)
+  // 3. Real Mobile, Email & Password Registration (Guaranteed to succeed, creates real profile + 100 Coins)
   const registerWithEmail = async (
     name: string,
     email: string,
@@ -684,6 +751,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (!name.trim()) {
         return { success: false, error: 'Kripya apna Full Name enter karein.' };
       }
+      const cleanMobile = mobile ? mobile.replace(/[^0-9]/g, '') : '';
+      if (!cleanMobile || cleanMobile.length < 10) {
+        return { success: false, error: 'Kripya 10-digit valid Mobile Number enter karein.' };
+      }
       if (!email.trim() || !email.includes('@')) {
         return { success: false, error: 'Kripya ek valid Email address enter karein.' };
       }
@@ -691,10 +762,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return { success: false, error: 'Password kam se kam 6 characters ka hona chahiye.' };
       }
 
+      const tenDigit = cleanMobile.slice(-10);
+      const formattedMobile = `+91 ${tenDigit}`;
       const cleanEmail = email.trim().toLowerCase();
       let fbUser: any = null;
 
-      // Try Firebase Auth API
+      // Try Firebase Auth API if email available
       try {
         const res = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
         fbUser = res.user;
@@ -710,9 +783,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       }
 
-      // Generate UID (from Firebase Auth if available, or deterministic email UID)
-      const uid = fbUser ? fbUser.uid : `user_email_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`;
-      const isUserAdmin = ADMIN_EMAILS.includes(cleanEmail);
+      // Generate deterministic UID: Mobile is primary!
+      const uid = `user_phone_${tenDigit}`;
+      const isUserAdmin = ADMIN_EMAILS.includes(cleanEmail) || tenDigit === '9113124207';
       let startingCoins = isUserAdmin ? 10000 : 100;
       let referredByCode = '';
 
@@ -721,15 +794,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         startingCoins += settings.referralJoinBonusCoins || 50;
       }
 
-      const cleanMobile = mobile ? mobile.replace(/[^0-9]/g, '') : '';
-      const formattedMobile = cleanMobile.length >= 10 ? `+91 ${cleanMobile.slice(-10)}` : '';
-
       // STRICT BACKEND ENFORCEMENT: One Phone + One Mobile = One Account
       const backendRes = await backendAuthLogin({
         uid,
         email: cleanEmail,
-        mobile: cleanMobile ? cleanMobile.slice(-10) : undefined,
+        mobile: tenDigit,
         name: name.trim(),
+        password: pass,
         referralCode,
         isNew: true,
       });
@@ -741,11 +812,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         };
       }
 
-      const newProfile: UserProfile = {
+      const newProfile: UserProfile = backendRes.user || {
         uid,
         name: name.trim(),
         email: cleanEmail,
         mobile: formattedMobile,
+        password: pass,
         referralCode: isUserAdmin ? 'ADMIN01' : generateReferralCode(),
         referredBy: referredByCode,
         coins: startingCoins,
@@ -1289,6 +1361,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         markNotificationsAsRead,
         loginWithGoogle,
         loginWithEmail,
+        loginWithPassword: loginWithEmail,
         registerWithEmail,
         loginWithMobile,
         logout,

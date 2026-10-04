@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-03T10:33:12.173Z",
+  "updatedAt": "2026-10-04T07:24:36.918Z",
   "devices": [
     {
       "deviceHash": "dev_670c5c2aa62919175d69734a",
@@ -13,6 +13,46 @@
       "ipAddress": "127.0.0.1",
       "userAgent": "TestPhone/1.0 (Android 14; Pixel 8)",
       "hardwareEntropy": "1080x2400x24|2.75|8|Linux aarch64|5|Asia/Kolkata|Mali-G715",
+      "isUnlockedByAdmin": false
+    },
+    {
+      "deviceHash": "dev_9dd2d07e1d1be3508e93e9be",
+      "cookieToken": "dtk_e9000e91d8c8c127d27a33adc5e680c7",
+      "hardwareHash": "9dd2d07e1d1be3508e93e9be",
+      "userId": "user_email_kumarankush82962_gmail_com",
+      "userMobile": "",
+      "userEmail": "kumarankush82962@gmail.com",
+      "registeredAt": "2026-10-04T06:42:24.565Z",
+      "lastSeenAt": "2026-10-04T07:20:41.161Z",
+      "ipAddress": "2409:40e4:1308:2089:8000::",
+      "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36",
+      "isUnlockedByAdmin": false
+    },
+    {
+      "deviceHash": "dev_dfb9947b6ce6a1b77d45d267",
+      "cookieToken": "dtk_f7b576078fe78bd7c336bb27d427c58e",
+      "hardwareHash": "dfb9947b6ce6a1b77d45d267",
+      "userId": "user_phone_9870001122",
+      "userMobile": "9870001122",
+      "userEmail": "karan.verma@example.com",
+      "registeredAt": "2026-10-04T07:07:53.037Z",
+      "lastSeenAt": "2026-10-04T07:24:36.918Z",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "Python-urllib/3.10",
+      "isUnlockedByAdmin": false
+    },
+    {
+      "deviceHash": "dev_c2a86400caf3b714dbb63e0b",
+      "cookieToken": "dtk_437119524840a0c9e329d8d686fbd208",
+      "hardwareHash": "c2a86400caf3b714dbb63e0b",
+      "userId": "user_phone_9113124207",
+      "userMobile": "9113124207",
+      "userEmail": "kumarankush36090@gmail.com",
+      "registeredAt": "2026-10-04T07:10:00.192Z",
+      "lastSeenAt": "2026-10-04T07:10:00.192Z",
+      "ipAddress": "2409:40e4:1308:2089:8000::",
+      "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36",
+      "hardwareEntropy": "360x785x24|2|8|Linux armv81|5|Asia/Calcutta|ANGLE (ARM, Mali-G57 MC2, OpenGL ES 3.2)",
       "isUnlockedByAdmin": false
     }
   ],
@@ -29,6 +69,20 @@
       "userId": "user_phone_9822222222",
       "deviceHash": "dev_670c5c2aa62919175d69734a",
       "registeredAt": "2026-10-03T10:33:12.173Z",
+      "isUnlockedByAdmin": false
+    },
+    {
+      "mobile": "9870001122",
+      "userId": "user_phone_9870001122",
+      "deviceHash": "dev_dfb9947b6ce6a1b77d45d267",
+      "registeredAt": "2026-10-04T07:07:53.037Z",
+      "isUnlockedByAdmin": false
+    },
+    {
+      "mobile": "9113124207",
+      "userId": "user_phone_9113124207",
+      "deviceHash": "dev_c2a86400caf3b714dbb63e0b",
+      "registeredAt": "2026-10-04T07:10:00.192Z",
       "isUnlockedByAdmin": false
     }
   ],

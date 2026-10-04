@@ -1126,12 +1126,25 @@ app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
 
 app.post('/api/auth/login', (req: Request, res: Response) => {
   try {
-    const { uid, mobile, name, email, referralCode, isNew: explicitIsNew } = req.body;
+    const { uid, mobile, name, email, password, referralCode, isNew: explicitIsNew } = req.body;
     const cleanMobile = mobile ? mobile.replace(/[^0-9]/g, '').slice(-10) : '';
     const finalUid = uid || (cleanMobile ? `user_phone_${cleanMobile}` : `user_${Date.now()}`);
 
     let user = usersStore.get(finalUid);
-    const isNew = !user || explicitIsNew === true;
+    if (!user && cleanMobile) {
+      user = Array.from(usersStore.values()).find(
+        (u) =>
+          u.uid === `user_phone_${cleanMobile}` ||
+          (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanMobile)
+      );
+    }
+    if (!user && email) {
+      user = Array.from(usersStore.values()).find(
+        (u) => u.email && u.email.toLowerCase() === email.toLowerCase()
+      );
+    }
+
+    const isNew = !user;
 
     // STRICT ONE PHONE + ONE MOBILE = ONE ACCOUNT SECURITY SYSTEM
     const validation = validateOneDeviceOneAccount(req, cleanMobile, finalUid, isNew);
@@ -1157,6 +1170,7 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
         name: name || (cleanMobile ? `User ${cleanMobile.slice(-4)}` : 'Free Earn User'),
         mobile: cleanMobile ? `+91 ${cleanMobile}` : '',
         email: email || '',
+        password: password || undefined,
         referralCode: newRefCode,
         referredBy: referralCode || undefined,
         coins: 100, // 100 Welcome Coins
@@ -1223,6 +1237,88 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
     }
 
     res.json({ success: true, user, isNew });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Login failed' });
+  }
+});
+
+/**
+ * 2.0 Password Login: Sign in with Mobile OR Email + Password (Fast & Reliable)
+ */
+app.post('/api/auth/password-login', (req: Request, res: Response) => {
+  try {
+    const { identifier, password } = req.body;
+    const cleanId = (identifier || '').trim();
+    const cleanPass = (password || '').trim();
+
+    if (!cleanId || !cleanPass) {
+      res.status(400).json({ success: false, error: 'Mobile number ya Email aur Password dono required hain.' });
+      return;
+    }
+
+    let foundUser: UserProfile | undefined;
+
+    if (cleanId.includes('@')) {
+      // Lookup by email (case-insensitive)
+      foundUser = Array.from(usersStore.values()).find(
+        (u) => u.email && u.email.toLowerCase() === cleanId.toLowerCase()
+      );
+    } else {
+      // Lookup by 10-digit mobile
+      const cleanDigits = cleanId.replace(/[^0-9]/g, '').slice(-10);
+      foundUser = Array.from(usersStore.values()).find(
+        (u) =>
+          u.uid === `user_phone_${cleanDigits}` ||
+          (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanDigits)
+      );
+    }
+
+    if (!foundUser) {
+      res.status(404).json({
+        success: false,
+        error: 'Yeh Mobile number ya Email registered nahi hai. Kripya naya account Register karein.',
+      });
+      return;
+    }
+
+    if (foundUser.isBlocked) {
+      res.status(403).json({
+        success: false,
+        error: 'Yeh account policy violation ki wajah se suspended hai.',
+      });
+      return;
+    }
+
+    // Password verification (if set on account)
+    if (foundUser.password && foundUser.password !== cleanPass) {
+      res.status(401).json({
+        success: false,
+        error: 'Galat Password! Kripya sahi password enter karein.',
+      });
+      return;
+    }
+
+    // If account was created before password field, associate the password now
+    if (!foundUser.password && cleanPass) {
+      foundUser.password = cleanPass;
+      usersStore.set(foundUser.uid, foundUser);
+      saveUsersRegistry();
+    }
+
+    // Resolve server device and issue permanent cookie token
+    const { deviceHash, cookieToken } = resolveServerDevice(req, req.body);
+    res.setHeader(
+      'Set-Cookie',
+      `__fe_dev_token=${cookieToken}; Path=/; Max-Age=315360000; HttpOnly; SameSite=Lax`
+    );
+
+    const devRecord = deviceRegistry.get(deviceHash);
+    if (devRecord) {
+      devRecord.lastSeenAt = new Date().toISOString();
+      saveDeviceRegistry();
+    }
+
+    res.json({ success: true, user: foundUser });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || 'Login failed' });
   }
@@ -1564,7 +1660,20 @@ app.get('/api/referrals/team/:uid', (req: Request, res: Response) => {
  * 3. User Profiles
  */
 app.get('/api/users/:uid', (req: Request, res: Response) => {
-  const user = usersStore.get(req.params.uid);
+  const query = (req.params.uid || '').trim();
+  let user = usersStore.get(query);
+  if (!user) {
+    const cleanDigits = query.replace(/[^0-9]/g, '').slice(-10);
+    user = Array.from(usersStore.values()).find(
+      (u) =>
+        u.uid === query ||
+        (u.email && u.email.toLowerCase() === query.toLowerCase()) ||
+        (cleanDigits.length === 10 && (
+          u.uid === `user_phone_${cleanDigits}` ||
+          (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanDigits)
+        ))
+    );
+  }
   if (!user) {
     res.status(404).json({ success: false, error: 'User not found' });
     return;
@@ -1573,13 +1682,27 @@ app.get('/api/users/:uid', (req: Request, res: Response) => {
 });
 
 app.put('/api/users/:uid', (req: Request, res: Response) => {
-  const existing = usersStore.get(req.params.uid);
+  const query = (req.params.uid || '').trim();
+  let existing = usersStore.get(query);
+  if (!existing) {
+    const cleanDigits = query.replace(/[^0-9]/g, '').slice(-10);
+    existing = Array.from(usersStore.values()).find(
+      (u) =>
+        u.uid === query ||
+        (u.email && u.email.toLowerCase() === query.toLowerCase()) ||
+        (cleanDigits.length === 10 && (
+          u.uid === `user_phone_${cleanDigits}` ||
+          (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanDigits)
+        ))
+    );
+  }
   if (!existing) {
     res.status(404).json({ success: false, error: 'User not found' });
     return;
   }
   const updated = { ...existing, ...req.body, updatedAt: new Date().toISOString() };
-  usersStore.set(req.params.uid, updated);
+  usersStore.set(existing.uid, updated);
+  saveUsersRegistry();
   res.json({ success: true, user: updated });
 });
 

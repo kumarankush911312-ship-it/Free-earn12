@@ -56,7 +56,7 @@ export function generateReferralCode(): string {
 }
 
 // ---------------- LOCAL STORAGE CACHE HELPERS ----------------
-function getLocalItem<T>(key: string, fallback: T): T {
+export function getLocalItem<T>(key: string, fallback: T): T {
   try {
     const item = localStorage.getItem(key);
     if (item) return JSON.parse(item) as T;
@@ -64,7 +64,7 @@ function getLocalItem<T>(key: string, fallback: T): T {
   return fallback;
 }
 
-function setLocalItem<T>(key: string, value: T): void {
+export function setLocalItem<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {}
@@ -144,22 +144,49 @@ export async function updateAppSettings(settings: Partial<AppSettings>): Promise
 
 // ---------------- USER PROFILES ----------------
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
+  const cleanId = (uid || '').trim();
+  if (!cleanId) return null;
+
   // 1. Direct local cache check
-  const local = getLocalItem<UserProfile | null>(`freeearn_user_${uid}`, null);
+  const local = getLocalItem<UserProfile | null>(`freeearn_user_${cleanId}`, null);
+  const sessionUser = getLocalItem<UserProfile | null>('freeearn_local_user', null);
+  const sessionCoins =
+    sessionUser &&
+    (sessionUser.uid === cleanId ||
+      (sessionUser.mobile && cleanId.includes(sessionUser.mobile.replace(/[^0-9]/g, '').slice(-10))) ||
+      (sessionUser.email && sessionUser.email.toLowerCase() === cleanId.toLowerCase()))
+      ? sessionUser.coins || 0
+      : 0;
+
+  // Fetch latest user from backend REST API
+  try {
+    const res = await apiFetch<{ success: boolean; user: UserProfile }>(`/api/users/${encodeURIComponent(cleanId)}`);
+    if (res && res.success && res.user) {
+      const maxCoins = Math.max(res.user.coins || 0, local?.coins || 0, sessionCoins);
+      const maxTotal = Math.max(res.user.totalEarnings || 0, local?.totalEarnings || 0, sessionUser?.totalEarnings || 0);
+      const merged: UserProfile = {
+        ...res.user,
+        coins: maxCoins,
+        totalEarnings: maxTotal,
+      };
+      setLocalItem(`freeearn_user_${merged.uid}`, merged);
+      setLocalItem(`freeearn_user_${cleanId}`, merged);
+      return merged;
+    }
+  } catch {}
+
   if (local && local.uid) {
-    // Background refresh from backend REST API
-    apiFetch<{ success: boolean; user: UserProfile }>(`/api/users/${uid}`).then((res) => {
-      if (res && res.success && res.user) {
-        setLocalItem(`freeearn_user_${uid}`, res.user);
-      }
-    });
     return local;
   }
 
+  if (sessionUser && (sessionUser.uid === cleanId || sessionUser.email?.toLowerCase() === cleanId.toLowerCase())) {
+    return sessionUser;
+  }
+
   // 2. Check demo seed list
-  const seedUser = DEMO_USERS.find((u) => u.uid === uid || (u.mobile && uid.includes(u.mobile.replace(/[^0-9]/g, '').slice(-10))));
+  const seedUser = DEMO_USERS.find((u) => u.uid === cleanId || (u.mobile && cleanId.includes(u.mobile.replace(/[^0-9]/g, '').slice(-10))));
   if (seedUser) {
-    setLocalItem(`freeearn_user_${uid}`, seedUser);
+    setLocalItem(`freeearn_user_${cleanId}`, seedUser);
     return seedUser;
   }
 
@@ -262,15 +289,20 @@ export async function getAllUsers(): Promise<UserProfile[]> {
 
 // ---------------- TASKS ----------------
 export async function getTasks(): Promise<Task[]> {
+  try {
+    const res = await apiFetch<{ success: boolean; tasks: Task[] }>('/api/tasks');
+    if (res && res.success && res.tasks && res.tasks.length > 0) {
+      setLocalItem('freeearn_demo_tasks', res.tasks);
+      return res.tasks;
+    }
+  } catch {}
+
   const localTasks = getLocalItem<Task[]>('freeearn_demo_tasks', []);
-  if (localTasks.length > 0) {
-    // Background fetch from Backend REST API
-    apiFetch<{ success: boolean; tasks: Task[] }>('/api/tasks').then((res) => {
-      if (res && res.success && res.tasks) {
-        setLocalItem('freeearn_demo_tasks', res.tasks);
-      }
-    });
-    return localTasks;
+  const validUrls = new Set(INITIAL_TASKS.map((t) => t.externalUrl));
+  const filtered = localTasks.filter((t) => validUrls.has(t.externalUrl));
+  if (filtered.length > 0) {
+    setLocalItem('freeearn_demo_tasks', filtered);
+    return filtered;
   }
 
   // Seed initial tasks
@@ -951,6 +983,7 @@ export async function backendAuthLogin(params: {
   mobile?: string;
   name?: string;
   email?: string;
+  password?: string;
   referralCode?: string;
   isNew?: boolean;
 }): Promise<{ success: boolean; user?: UserProfile; isNew?: boolean; error?: string }> {
@@ -975,6 +1008,24 @@ export async function backendAuthLogin(params: {
     success: false,
     error: res?.error || 'Authentication failed. Please try again.',
   };
+}
+
+export async function passwordLogin(
+  identifier: string,
+  pass: string
+): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+  try {
+    const res = await apiFetch<{ success: boolean; user?: UserProfile; error?: string }>('/api/auth/password-login', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, password: pass }),
+    });
+    if (res && res.success && res.user) {
+      return { success: true, user: res.user };
+    }
+    return { success: false, error: res?.error || 'Login failed. Kripya details check karein.' };
+  } catch {
+    return { success: false, error: 'Network error. Please try again.' };
+  }
 }
 
 // ---------------- ADMIN DEVICE & 1-PHONE-1-ACCOUNT MANAGEMENT ----------------

@@ -19,89 +19,21 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export const INITIAL_TASKS: Omit<Task, 'id' | 'createdAt'>[] = [
   {
-    title: 'Install & Register: Fintech Savings App',
-    description: 'Download the app from Play Store, complete registration and submit your registered mobile number.',
-    rewardCoins: 250,
+    title: 'Install & Register: BHIM UPI App',
+    description: 'Download the official BHIM UPI app, register with your bank mobile number, and complete 1st UPI setup to earn instant coins.',
+    rewardCoins: 350,
     category: 'app',
-    instructions: '1. Click open task link.\n2. Install the app on your Android device.\n3. Complete mobile OTP verification.\n4. Take a screenshot of the home dashboard and paste your registered mobile number in proof notes.',
+    instructions: '1. Click open link to download BHIM from official link.\n2. Complete mobile number verification.\n3. Link your bank account and make 1 test transfer or scan QR.\n4. Submit your registered UPI ID/screenshot as proof.',
     stepGuide: [
-      'Download & Install application',
-      'Register with active phone number',
-      'Submit proof screenshot link & phone'
-    ],
-    dailyLimit: 500,
-    status: 'active',
-    badge: 'Popular',
-    externalUrl: 'https://play.google.com/store/apps',
-    verificationMethod: 'proof_link',
-  },
-  {
-    title: 'Complete 3-Min Consumer Trends Survey',
-    description: 'Share your shopping preferences in our partner market research survey to earn instant coins.',
-    rewardCoins: 180,
-    category: 'survey',
-    instructions: '1. Open the survey.\n2. Answer all 8 questions truthfully.\n3. On final completion screen, copy the completion ID code and submit it here.',
-    stepGuide: [
-      'Open market survey link',
-      'Answer all multiple choice questions',
-      'Submit your survey completion verification code'
-    ],
-    dailyLimit: 300,
-    status: 'active',
-    badge: 'High Pay',
-    externalUrl: 'https://forms.gle/freeearnsurvey',
-    verificationMethod: 'proof_link',
-  },
-  {
-    title: 'Join Official Telegram Community',
-    description: 'Join Free Earn official Telegram channel for daily promo codes, bonus giveaways, and app updates.',
-    rewardCoins: 75,
-    category: 'social',
-    instructions: '1. Join @FreeEarnOfficial on Telegram.\n2. Stay subscribed for at least 7 days.\n3. Submit your Telegram username (@your_handle) below.',
-    stepGuide: [
-      'Join Telegram channel',
-      'Turn on notifications for giveaway codes',
-      'Submit your Telegram username'
+      'Download & install BHIM app',
+      'Register mobile & link bank account',
+      'Submit your BHIM UPI ID as proof'
     ],
     dailyLimit: 1000,
     status: 'active',
-    badge: 'Quick',
-    externalUrl: 'https://t.me/FreeEarnOfficial',
+    badge: 'Featured UPI',
+    externalUrl: 'https://bhim.onelink.me/CoHB/dr3s0al0',
     verificationMethod: 'proof_link',
-  },
-  {
-    title: 'Follow Free Earn on Instagram',
-    description: 'Follow our official Instagram handle and like the latest post about earning rewards.',
-    rewardCoins: 50,
-    category: 'social',
-    instructions: '1. Follow @FreeEarnApp.\n2. Like the pinned rewards announcement post.\n3. Submit your Instagram profile handle.',
-    stepGuide: [
-      'Follow on Instagram',
-      'Like pinned post',
-      'Submit Instagram handle'
-    ],
-    dailyLimit: 1000,
-    status: 'active',
-    badge: 'Easy',
-    externalUrl: 'https://instagram.com',
-    verificationMethod: 'proof_link',
-  },
-  {
-    title: 'Read Sponsored Tech & Finance Article',
-    description: 'Read a verified financial literacy article for 60 seconds to unlock your daily reader reward.',
-    rewardCoins: 40,
-    category: 'daily',
-    instructions: '1. Click open article.\n2. Scroll through the educational content.\n3. Wait for the reading timer to complete and claim reward.',
-    stepGuide: [
-      'Open article',
-      'Read for 60 seconds',
-      'Submit confirmation'
-    ],
-    dailyLimit: 200,
-    status: 'active',
-    badge: 'Daily',
-    externalUrl: 'https://news.google.com',
-    verificationMethod: 'instant_timer',
   },
 ];
 

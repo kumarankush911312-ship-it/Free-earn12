@@ -5,6 +5,7 @@ export interface UserProfile {
   name: string;
   mobile: string;
   email?: string;
+  password?: string;
   referralCode: string;
   referredBy?: string;
   coins: number;
