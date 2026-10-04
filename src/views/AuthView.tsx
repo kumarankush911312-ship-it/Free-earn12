@@ -70,10 +70,25 @@ export const AuthView: React.FC = () => {
     }
   }, [otpCountdown]);
 
-  // Read URL referral parameters (?ref=CODE or #/?ref=CODE)
+  // Read URL referral parameters (/r/CODE, ?ref=CODE or #/?ref=CODE)
   useEffect(() => {
-    const searchParams = new URLSearchParams(window.location.search);
-    let ref = searchParams.get('ref');
+    let ref: string | null = null;
+
+    // 1. Check path /r/CODE or /ref/CODE
+    const path = window.location.pathname;
+    if (path.startsWith('/r/')) {
+      ref = path.substring(3).split('/')[0].split('?')[0];
+    } else if (path.startsWith('/ref/')) {
+      ref = path.substring(5).split('/')[0].split('?')[0];
+    }
+
+    // 2. Check search params
+    if (!ref) {
+      const searchParams = new URLSearchParams(window.location.search);
+      ref = searchParams.get('ref');
+    }
+
+    // 3. Check hash
     if (!ref && window.location.hash.includes('ref=')) {
       const hashQuery = window.location.hash.split('?')[1];
       if (hashQuery) {
@@ -81,6 +96,12 @@ export const AuthView: React.FC = () => {
         ref = hashParams.get('ref');
       }
     }
+
+    // 4. Check cached pending ref
+    if (!ref) {
+      ref = localStorage.getItem('freeearn_pending_ref');
+    }
+
     if (ref) {
       const cleanRef = ref.trim().toUpperCase();
       localStorage.setItem('freeearn_pending_ref', cleanRef);

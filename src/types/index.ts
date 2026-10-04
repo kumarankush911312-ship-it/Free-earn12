@@ -17,6 +17,7 @@ export interface UserProfile {
   isBlocked: boolean;
   lastCheckInDate?: string;
   consecutiveCheckIns: number;
+  lastDailyBonusDate?: string;
   lastAdWatchedAt?: string;
   adsWatchedToday: number;
   adsWatchedDate?: string;

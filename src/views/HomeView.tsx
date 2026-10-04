@@ -76,8 +76,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
   };
 
   const currentStreak = user?.consecutiveCheckIns || 0;
+  const todayDateStr = new Date().toISOString().split('T')[0];
   const todayCheckedIn = Boolean(
-    user?.lastCheckInDate && user.lastCheckInDate === new Date().toISOString().split('T')[0]
+    user?.lastCheckInDate && user.lastCheckInDate === todayDateStr
+  );
+  const todayBonusClaimed = Boolean(
+    user?.lastDailyBonusDate && user.lastDailyBonusDate === todayDateStr
   );
 
   return (
@@ -314,16 +318,34 @@ export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
         {/* Lucky Mystery Bonus 3D Button */}
         <button
           onClick={handleClaimBonus}
-          disabled={bonusLoading}
-          className="btn-3d card-3d p-3.5 rounded-2xl bg-gradient-to-b from-purple-950/80 to-slate-950 border-t border-purple-500/30 border-b-4 border-b-purple-950 text-left hover:border-purple-400/60 transition-all group flex flex-col justify-between"
+          disabled={todayBonusClaimed || bonusLoading}
+          className={`btn-3d card-3d p-3.5 rounded-2xl text-left transition-all group flex flex-col justify-between ${
+            todayBonusClaimed
+              ? 'bg-slate-900/70 border-t border-slate-700/30 border-b-4 border-b-slate-950 opacity-60 cursor-not-allowed'
+              : 'bg-gradient-to-b from-purple-950/80 to-slate-950 border-t border-purple-500/30 border-b-4 border-b-purple-950 hover:border-purple-400/60'
+          }`}
         >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-600 text-white flex items-center justify-center mb-2 shadow-md shadow-purple-600/30 group-hover:scale-110 transition-transform">
-            <Gift className="w-4 h-4 text-white" />
+          <div
+            className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 shadow-md transition-transform ${
+              todayBonusClaimed
+                ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/40'
+                : 'bg-gradient-to-tr from-purple-600 to-pink-600 text-white shadow-purple-600/30 group-hover:scale-110'
+            }`}
+          >
+            {todayBonusClaimed ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <Gift className="w-4 h-4 text-white" />
+            )}
           </div>
           <div>
             <h4 className="text-xs font-black text-white">Daily Bonus</h4>
-            <p className="text-[10px] text-purple-300 font-bold mt-0.5">
-              +{settings.dailyBonusCoins} Coins
+            <p
+              className={`text-[10px] font-bold mt-0.5 ${
+                todayBonusClaimed ? 'text-emerald-400' : 'text-purple-300'
+              }`}
+            >
+              {todayBonusClaimed ? 'Claimed Today' : `+${settings.dailyBonusCoins} Coins`}
             </p>
           </div>
         </button>

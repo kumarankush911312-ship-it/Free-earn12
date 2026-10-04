@@ -23,7 +23,7 @@ export const TeamView: React.FC<TeamViewProps> = ({ onOpenAuth }) => {
   const [copied, setCopied] = useState(false);
 
   const referralCode = user?.referralCode || 'FREE99';
-  const referralLink = `${window.location.origin}/?ref=${referralCode}`;
+  const referralLink = `${window.location.origin}/r/${referralCode}`;
 
   // Filter referral bonus transactions
   const referralTransactions = transactions.filter(
@@ -124,14 +124,23 @@ export const TeamView: React.FC<TeamViewProps> = ({ onOpenAuth }) => {
             </button>
           </div>
 
-          {/* Full Link Quick Button */}
-          <div className="max-w-sm mx-auto">
+          {/* Short Referral Link Box */}
+          <div className="mt-2 p-2.5 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 flex items-center justify-between max-w-sm mx-auto">
+            <div className="text-left pl-2 overflow-hidden mr-2">
+              <span className="text-[9px] uppercase font-bold text-indigo-300 block">
+                ⚡ Short Invite Link
+              </span>
+              <span className="text-xs font-semibold text-slate-200 truncate block font-mono">
+                {referralLink}
+              </span>
+            </div>
+
             <button
               onClick={handleCopyLink}
-              className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-extrabold flex items-center justify-center space-x-2 shadow-lg shadow-purple-600/30 transition-all hover:scale-[1.01]"
+              className="py-1.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shrink-0 flex items-center space-x-1 shadow-md transition-all"
             >
-              <Copy className="w-4 h-4" />
-              <span>Copy Full Referral Link</span>
+              <Copy className="w-3.5 h-3.5" />
+              <span>Copy Link</span>
             </button>
           </div>
 

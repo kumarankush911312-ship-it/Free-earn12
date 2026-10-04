@@ -119,26 +119,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // User profile: initialized from stored session if present, otherwise null (requires Login/Register)
   const [user, setUser] = useState<UserProfile | null>(() => {
     try {
-      // If visiting via referral link, always show clean Register page
-      if (window.location.search.includes('ref=') || window.location.hash.includes('ref=')) {
-        localStorage.removeItem('freeearn_local_user');
-        return null;
-      }
-
-      // Clean up any stale/cached admin user profile from client storage
       const stored = localStorage.getItem('freeearn_local_user');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (
-          parsed &&
-          (parsed.uid === 'user_phone_9113124207' ||
-            parsed.mobile?.includes('9113124207') ||
-            parsed.name === 'Ankush Kumar' ||
-            parsed.email?.toLowerCase() === 'kumarankush5184@gmail.com')
-        ) {
-          localStorage.removeItem('freeearn_local_user');
-          return null;
-        }
         if (parsed && parsed.uid) return parsed;
       }
     } catch {}
@@ -479,12 +462,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               activeProfile.name,
               activeProfile.mobile
             );
-            const referrer = allUsers.find(
+            let referrer = allUsers.find(
               (u) => u.referralCode?.toUpperCase() === referredByCode
             );
+            if (!referrer) {
+              const latestUsers = await getAllUsers();
+              referrer = latestUsers.find(
+                (u) => u.referralCode?.toUpperCase() === referredByCode
+              );
+            }
             if (referrer) {
               const refBonus = settings.referralRewardCoins || 100;
-              const newCoins = referrer.coins + refBonus;
+              const newCoins = (referrer.coins || 0) + refBonus;
               await updateUserProfile(referrer.uid, {
                 coins: newCoins,
                 todayEarnings: (referrer.todayEarnings || 0) + refBonus,
@@ -863,12 +852,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             newProfile.name,
             newProfile.mobile
           );
-          const referrer = allUsers.find(
+          let referrer = allUsers.find(
             (u) => u.referralCode?.toUpperCase() === referredByCode
           );
+          if (!referrer) {
+            const latestUsers = await getAllUsers();
+            referrer = latestUsers.find(
+              (u) => u.referralCode?.toUpperCase() === referredByCode
+            );
+          }
           if (referrer) {
             const refBonus = settings.referralRewardCoins || 100;
-            const newCoins = referrer.coins + refBonus;
+            const newCoins = (referrer.coins || 0) + refBonus;
             await updateUserProfile(referrer.uid, {
               coins: newCoins,
               todayEarnings: (referrer.todayEarnings || 0) + refBonus,
@@ -1017,6 +1012,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const claimDailyBonus = async (): Promise<{ success: boolean; reward: number; message: string }> => {
     if (!user) return { success: false, reward: 0, message: 'Please login first' };
 
+    const todayStr = getTodayDateString();
+    if (user.lastDailyBonusDate === todayStr) {
+      return {
+        success: false,
+        reward: 0,
+        message: 'Aap aaj ka Daily Bonus already claim kar chuke hain! Kripya kal dobara aaiye.',
+      };
+    }
+
     const nominalReward = settings.dailyBonusCoins || 15;
 
     // Server-side validation
@@ -1031,7 +1035,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return {
         success: false,
         reward: 0,
-        message: validation.error || 'Suspicious activity detected. Please try again later or contact support.',
+        message: validation.error || 'Aap aaj ka Daily Bonus already claim kar chuke hain!',
       };
     }
 
@@ -1040,17 +1044,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const newToday = user.todayEarnings + authorizedReward;
     const newTotal = user.totalEarnings + authorizedReward;
 
-    const updatedUser = {
+    const updatedUser: UserProfile = {
       ...user,
       coins: newCoins,
       todayEarnings: newToday,
       totalEarnings: newTotal,
+      lastDailyBonusDate: todayStr,
     };
 
     await updateUserProfile(user.uid, {
       coins: newCoins,
       todayEarnings: newToday,
       totalEarnings: newTotal,
+      lastDailyBonusDate: todayStr,
     });
 
     await createTransaction({
@@ -1064,11 +1070,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setUser(updatedUser);
     localStorage.setItem('freeearn_local_user', JSON.stringify(updatedUser));
+    setLocalItem(`freeearn_user_${user.uid}`, updatedUser);
     await loadUserData(user.uid);
     triggerConfetti();
     addNotification('Daily Bonus Claimed!', `+${authorizedReward} coins credited to your wallet!`, 'reward');
 
-    return { success: true, reward: authorizedReward, message: `Hooray! You received +${authorizedReward} Free Coins!` };
+    return { success: true, reward: authorizedReward, message: `Awesome! You claimed today's Daily Bonus of +${authorizedReward} Coins!` };
   };
 
   // 3. Rewarded Ad reward (Server-Validated Anti-Cheat)

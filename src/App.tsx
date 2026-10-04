@@ -35,23 +35,43 @@ const MainAppContent: React.FC = () => {
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [inviteBanner, setInviteBanner] = useState<string | null>(null);
 
-  // Check URL for referral parameter (?ref=CODE or #/?ref=CODE)
+  // Check URL for referral parameter (/r/CODE, ?ref=CODE, or #/?ref=CODE)
   React.useEffect(() => {
     const parseRef = () => {
-      const searchParams = new URLSearchParams(window.location.search);
-      let ref = searchParams.get('ref');
-      if (!ref && window.location.hash.includes('ref=')) {
-        const hashQuery = window.location.hash.split('?')[1];
-        if (hashQuery) {
-          const hashParams = new URLSearchParams(hashQuery);
-          ref = hashParams.get('ref');
+      let ref: string | null = null;
+
+      // 1. Check path /r/CODE or /ref/CODE
+      const path = window.location.pathname;
+      if (path.startsWith('/r/')) {
+        ref = path.substring(3).split('/')[0].split('?')[0];
+      } else if (path.startsWith('/ref/')) {
+        ref = path.substring(5).split('/')[0].split('?')[0];
+      }
+
+      // 2. Check search params ?ref=CODE
+      if (!ref) {
+        const searchParams = new URLSearchParams(window.location.search);
+        ref = searchParams.get('ref');
+      }
+
+      // 3. Check hash #/r/CODE or #/?ref=CODE
+      if (!ref) {
+        const hash = window.location.hash;
+        if (hash.startsWith('#/r/') || hash.startsWith('#/ref/')) {
+          ref = hash.replace(/^#(?:(?:\/r\/)|(?:\/ref\/))/, '').split('?')[0];
+        } else if (hash.includes('ref=')) {
+          const hashQuery = hash.split('?')[1];
+          if (hashQuery) {
+            const hashParams = new URLSearchParams(hashQuery);
+            ref = hashParams.get('ref');
+          }
         }
       }
 
       if (ref) {
         const cleanRef = ref.trim().toUpperCase();
         localStorage.setItem('freeearn_pending_ref', cleanRef);
-        setInviteBanner(`Referral Code ${cleanRef} applied! Register to get +50 Free Coins bonus.`);
+        setInviteBanner(`🎁 Referral Code ${cleanRef} applied! Register to get +50 Free Coins bonus.`);
       }
     };
 

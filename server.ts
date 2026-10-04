@@ -601,11 +601,27 @@ app.post(
         }
 
         case 'daily_bonus': {
-          const hoursSinceLast = (now - history.lastDailyBonusAt) / (1000 * 60 * 60);
-          if (history.lastDailyBonusAt > 0 && hoursSinceLast < 23) {
+          const userObj =
+            usersStore.get(userId) ||
+            Array.from(usersStore.values()).find(
+              (u) =>
+                u.uid === userId ||
+                (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === userId.replace(/[^0-9]/g, '').slice(-10))
+            );
+
+          if (userObj && userObj.lastDailyBonusDate === todayStr) {
             res.status(400).json({
               success: false,
-              error: 'Daily login bonus already claimed. Available once every 24 hours.',
+              error: 'Daily bonus already claimed today. Available only once per day.',
+            });
+            return;
+          }
+
+          const hoursSinceLast = (now - history.lastDailyBonusAt) / (1000 * 60 * 60);
+          if (history.lastDailyBonusAt > 0 && hoursSinceLast < 20) {
+            res.status(400).json({
+              success: false,
+              error: 'Daily bonus already claimed today. Available only once per day.',
             });
             return;
           }
@@ -613,6 +629,11 @@ app.post(
           authorizedCoins = 15;
           rewardDescription = 'Server-verified Daily Login Bonus';
           history.lastDailyBonusAt = now;
+          if (userObj) {
+            userObj.lastDailyBonusDate = todayStr;
+            usersStore.set(userObj.uid, userObj);
+            saveUsersRegistry();
+          }
           break;
         }
 
@@ -1327,6 +1348,16 @@ app.post('/api/auth/password-login', (req: Request, res: Response) => {
 /**
  * 2.1 Referral System & Invite Links
  */
+app.get('/r/:code', (req: Request, res: Response) => {
+  const code = (req.params.code || '').trim().toUpperCase();
+  res.redirect(`/?ref=${encodeURIComponent(code)}`);
+});
+
+app.get('/ref/:code', (req: Request, res: Response) => {
+  const code = (req.params.code || '').trim().toUpperCase();
+  res.redirect(`/?ref=${encodeURIComponent(code)}`);
+});
+
 app.get('/api/referrals/lookup/:code', (req: Request, res: Response) => {
   const code = (req.params.code || '').trim().toUpperCase();
   if (!code) {
@@ -1379,7 +1410,7 @@ app.get('/api/referrals/lookup/:code', (req: Request, res: Response) => {
 
 app.post('/api/referrals/process', (req: Request, res: Response) => {
   try {
-    const { referralCode, newUserUid, newUserName, newUserMobile, deviceFingerprint } = req.body;
+    const { referralCode, newUserUid, newUserName, newUserMobile } = req.body;
     const cleanCode = (referralCode || '').trim().toUpperCase();
 
     if (!cleanCode || !newUserUid) {
@@ -1387,8 +1418,7 @@ app.post('/api/referrals/process', (req: Request, res: Response) => {
       return;
     }
 
-    // 1. Anti-Cheat: Self-referral prevention (Requirement 10)
-    const { deviceHash } = resolveServerDevice(req, req.body);
+    // 1. Find referrer by code
     const referrer = Array.from(usersStore.values()).find(
       (u) => u.referralCode?.toUpperCase() === cleanCode
     );
@@ -1396,61 +1426,24 @@ app.post('/api/referrals/process', (req: Request, res: Response) => {
     if (referrer) {
       const cleanNewMobile = (newUserMobile || '').replace(/[^0-9]/g, '').slice(-10);
       const cleanRefMobile = (referrer.mobile || '').replace(/[^0-9]/g, '').slice(-10);
-      const referrerPhone = cleanRefMobile ? phoneRegistry.get(cleanRefMobile) : undefined;
-      const referrerDevice = Array.from(deviceRegistry.values()).find(
-        (d) => d.userId === referrer.uid || (referrerPhone && d.deviceHash === referrerPhone.deviceHash)
-      );
 
+      // Block self-referral (same UID or same phone number)
       if (
         referrer.uid === newUserUid ||
-        (cleanNewMobile && cleanRefMobile && cleanNewMobile === cleanRefMobile) ||
-        (referrerPhone && referrerPhone.deviceHash === deviceHash) ||
-        (referrerDevice && referrerDevice.deviceHash === deviceHash)
+        (cleanNewMobile && cleanRefMobile && cleanNewMobile === cleanRefMobile)
       ) {
-        logSecurityEvent({
-          userId: newUserUid,
-          userName: newUserName,
-          eventType: 'MULTI_ACCOUNT_ABUSE',
-          severity: 'critical',
-          riskScoreDelta: 95,
-          reason: `Self-referral abuse detected: Referrer ${referrer.uid} and Referee ${newUserUid} share the same physical phone (${deviceHash})`,
-          metadata: { cleanCode, newUserUid, deviceHash, referrerUid: referrer.uid },
-        });
-
         res.status(403).json({
           success: false,
-          error: 'Self-referral on the same device is strictly prohibited by Fair Play policy.',
+          error: 'Aap apna khud ka referral code use nahi kar sakte (Self-referral not allowed).',
           code: 'SELF_REFERRAL_BLOCKED',
         });
         return;
       }
     }
 
-    // 2. Anti-Cheat: Multi-account device limit check
-    if (deviceFingerprint) {
-      const existingAccounts = deviceAccountsMap.get(deviceFingerprint);
-      if (existingAccounts && existingAccounts.size > antiCheatConfig.maxAccountsPerDevice) {
-        logSecurityEvent({
-          userId: newUserUid,
-          userName: newUserName,
-          eventType: 'MULTI_ACCOUNT_ABUSE',
-          severity: 'high',
-          riskScoreDelta: 45,
-          reason: `Device referral abuse: ${existingAccounts.size} accounts already created on this device`,
-          metadata: { deviceFingerprint, cleanCode },
-        });
-
-        res.status(403).json({
-          success: false,
-          error: 'Multi-account invite abuse detected on this device.',
-        });
-        return;
-      }
-    }
-
-    // 3. Process referral reward
-    const referralBonusCoins = 100; // Referrer gets +100 Coins (₹1.00)
-    const joinBonusCoins = 50; // New user gets +50 extra coins
+    // 2. Process referral reward: Referrer gets +100 Coins, New user gets +50 Coins
+    const referralBonusCoins = 100;
+    const joinBonusCoins = 50;
 
     if (referrer) {
       const updatedReferrer = {
@@ -1474,7 +1467,7 @@ app.post('/api/referrals/process', (req: Request, res: Response) => {
       });
     }
 
-    // Update new user record
+    // Update new user record with join bonus
     const newUser = usersStore.get(newUserUid);
     if (newUser) {
       const updatedNewUser = {
@@ -1497,6 +1490,8 @@ app.post('/api/referrals/process', (req: Request, res: Response) => {
         createdAt: new Date().toISOString(),
       });
     }
+
+    saveUsersRegistry();
 
     res.json({
       success: true,

@@ -154,17 +154,19 @@
     "email": "kumarankush36090@gmail.com",
     "password": "A829860k",
     "referralCode": "FE9JY31",
-    "coins": 1250,
-    "todayEarnings": 100,
-    "totalEarnings": 1250,
+    "coins": 1405,
+    "todayEarnings": 255,
+    "totalEarnings": 1405,
     "totalWithdrawn": 0,
     "pendingWithdrawalCoins": 0,
-    "level": "Bronze",
+    "level": "Silver",
     "isBlocked": false,
-    "consecutiveCheckIns": 0,
+    "consecutiveCheckIns": 1,
     "adsWatchedToday": 0,
     "createdAt": "2026-10-04T07:10:00.192Z",
     "isAdmin": true,
-    "updatedAt": "2026-10-04T07:19:39.446Z"
+    "updatedAt": "2026-10-04T07:36:32.459Z",
+    "lastCheckInDate": "2026-10-04",
+    "lastDailyBonusDate": "2026-10-04"
   }
 ]
