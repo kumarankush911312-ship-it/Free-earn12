@@ -139,15 +139,23 @@ export const EarnView: React.FC<EarnViewProps> = ({ onOpenAd, onOpenAuth }) => {
 
               <button
                 onClick={onOpenAd}
-                disabled={adsRemaining <= 0}
+                disabled={adsRemaining <= 0 || settings.videoAdsEnabled === false}
                 className={`py-2 px-3.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all ${
-                  adsRemaining > 0
+                  settings.videoAdsEnabled === false
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                    : adsRemaining > 0
                     ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-600/30 hover:scale-105'
                     : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                 }`}
               >
                 <Tv className="w-3.5 h-3.5 text-white" />
-                <span>{adsRemaining > 0 ? 'Watch Ad' : 'Limit Done'}</span>
+                <span>
+                  {settings.videoAdsEnabled === false
+                    ? 'Paused'
+                    : adsRemaining > 0
+                    ? 'Watch Ad'
+                    : 'Limit Done'}
+                </span>
               </button>
             </div>
           </div>
@@ -189,14 +197,23 @@ export const EarnView: React.FC<EarnViewProps> = ({ onOpenAd, onOpenAuth }) => {
             </div>
           </div>
 
-          {/* Tasks List */}
-          <div className="space-y-3">
-            {filteredTasks.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs">
-                No active tasks found in this category right now.
-              </div>
-            ) : (
-              filteredTasks.map((t) => {
+          {/* Tasks List (Admin Controlled) */}
+          {settings.tasksEnabled === false ? (
+            <div className="p-8 rounded-3xl bg-slate-900/70 border border-slate-800 text-center space-y-2">
+              <Flame className="w-10 h-10 text-slate-500 mx-auto" />
+              <h3 className="font-bold text-sm text-white">Tasks Marketplace Paused</h3>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                Tasks marketplace is currently paused by administrator for catalog update. Please check back later!
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredTasks.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs">
+                  No active tasks found in this category right now.
+                </div>
+              ) : (
+                filteredTasks.map((t) => {
                 const userSubmission = submissions.find((s) => s.taskId === t.id);
 
                 return (
@@ -259,6 +276,7 @@ export const EarnView: React.FC<EarnViewProps> = ({ onOpenAd, onOpenAuth }) => {
               })
             )}
           </div>
+          )}
         </>
       ) : (
         /* Submissions View */

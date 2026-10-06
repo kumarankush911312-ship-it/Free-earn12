@@ -373,9 +373,11 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
-// Helper: Get user's today string (YYYY-MM-DD UTC)
+// Helper: Get user's today string in Indian Standard Time (IST = UTC+5:30)
 function getTodayDateString(): string {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  const istDate = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  return istDate.toISOString().split('T')[0];
 }
 
 // Helper: Log security incident
@@ -570,6 +572,11 @@ app.post(
           }
 
           // Check 5: Daily ad cap
+          if (settingsStore.videoAdsEnabled === false) {
+            res.status(400).json({ success: false, error: 'Video ads are currently paused by administrator.' });
+            return;
+          }
+
           if (history.adsTodayCount >= antiCheatConfig.maxDailyAdLimit) {
             res.status(429).json({
               success: false,
@@ -578,7 +585,7 @@ app.post(
             return;
           }
 
-          authorizedCoins = 0; // No coin reward for ads per user instruction
+          authorizedCoins = settingsStore.adRewardCoins || 0;
           rewardDescription = `Sponsored Video Ad #${history.adsTodayCount + 1}`;
           history.lastAdClaimAt = now;
           history.adsTodayCount += 1;
@@ -586,21 +593,14 @@ app.post(
         }
 
         case 'daily_checkin': {
-          if (history.lastCheckInDate === todayStr) {
+          if (settingsStore.dailyCheckInEnabled === false) {
             res.status(400).json({
               success: false,
-              error: 'You have already collected today’s Daily Check-in streak reward.',
+              error: 'Daily check-in is currently paused by administrator.',
             });
             return;
           }
 
-          authorizedCoins = Math.min(100, Math.max(10, Number(claimedCoins) || 15));
-          rewardDescription = `Server-verified Daily Streak Check-in (${todayStr})`;
-          history.lastCheckInDate = todayStr;
-          break;
-        }
-
-        case 'daily_bonus': {
           const userObj =
             usersStore.get(userId) ||
             Array.from(usersStore.values()).find(
@@ -609,7 +609,49 @@ app.post(
                 (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === userId.replace(/[^0-9]/g, '').slice(-10))
             );
 
-          if (userObj && userObj.lastDailyBonusDate === todayStr) {
+          if (
+            (userObj && (userObj.lastCheckInDate === todayStr || (userObj.lastCheckInDate && userObj.lastCheckInDate.startsWith(todayStr)))) ||
+            history.lastCheckInDate === todayStr
+          ) {
+            res.status(400).json({
+              success: false,
+              error: 'You have already collected today’s Daily Check-in streak reward. Available once per day.',
+            });
+            return;
+          }
+
+          authorizedCoins = Math.min(100, Math.max(10, Number(claimedCoins) || 15));
+          rewardDescription = `Server-verified Daily Streak Check-in (${todayStr})`;
+          history.lastCheckInDate = todayStr;
+          if (userObj) {
+            userObj.lastCheckInDate = todayStr;
+            usersStore.set(userObj.uid, userObj);
+            saveUsersRegistry();
+          }
+          break;
+        }
+
+        case 'daily_bonus': {
+          if (settingsStore.dailyBonusEnabled === false) {
+            res.status(400).json({
+              success: false,
+              error: 'Daily bonus is currently paused by administrator.',
+            });
+            return;
+          }
+
+          const userObj =
+            usersStore.get(userId) ||
+            Array.from(usersStore.values()).find(
+              (u) =>
+                u.uid === userId ||
+                (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === userId.replace(/[^0-9]/g, '').slice(-10))
+            );
+
+          if (
+            (userObj && (userObj.lastDailyBonusDate === todayStr || (userObj.lastDailyBonusDate && userObj.lastDailyBonusDate.startsWith(todayStr)))) ||
+            (history.lastDailyBonusAt > 0 && (now - history.lastDailyBonusAt) / (1000 * 60 * 60) < 20)
+          ) {
             res.status(400).json({
               success: false,
               error: 'Daily bonus already claimed today. Available only once per day.',
@@ -626,7 +668,9 @@ app.post(
             return;
           }
 
-          authorizedCoins = 15;
+          const minB = settingsStore.dailyBonusMinCoins || settingsStore.dailyBonusCoins || 10;
+          const maxB = settingsStore.dailyBonusMaxCoins || settingsStore.dailyBonusCoins || 50;
+          authorizedCoins = Math.floor(Math.random() * (maxB - minB + 1)) + minB;
           rewardDescription = 'Server-verified Daily Login Bonus';
           history.lastDailyBonusAt = now;
           if (userObj) {
@@ -638,6 +682,14 @@ app.post(
         }
 
         case 'task_completion': {
+          if (settingsStore.tasksEnabled === false) {
+            res.status(400).json({
+              success: false,
+              error: 'Tasks marketplace is currently paused by administrator.',
+            });
+            return;
+          }
+
           authorizedCoins = Math.max(1, Number(claimedCoins) || 50);
           rewardDescription = 'Server-verified Task Marketplace Reward';
           break;
@@ -907,6 +959,12 @@ import type {
 
 // Server-side database stores
 const USERS_FILE = path.resolve(__dirname, 'data', 'users_registry.json');
+const SETTINGS_FILE = path.resolve(__dirname, 'data', 'settings.json');
+const TASKS_FILE = path.resolve(__dirname, 'data', 'tasks.json');
+const ANNOUNCEMENTS_FILE = path.resolve(__dirname, 'data', 'announcements.json');
+const WITHDRAWALS_FILE = path.resolve(__dirname, 'data', 'withdrawals.json');
+const SUBMISSIONS_FILE = path.resolve(__dirname, 'data', 'submissions.json');
+
 const usersStore = new Map<string, UserProfile>();
 DEMO_USERS.forEach((u) => usersStore.set(u.uid, { ...u }));
 
@@ -926,6 +984,8 @@ function loadUsersRegistry(): void {
 
 function saveUsersRegistry(): void {
   try {
+    const dir = path.dirname(USERS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const list = Array.from(usersStore.values());
     fs.writeFileSync(USERS_FILE, JSON.stringify(list, null, 2), 'utf-8');
   } catch (err) {
@@ -935,22 +995,49 @@ function saveUsersRegistry(): void {
 
 loadUsersRegistry();
 
-let tasksStore: Task[] = INITIAL_TASKS.map((t, idx) => ({
-  ...t,
-  id: `task_${idx + 1}_${Date.now()}`,
-  totalCompleted: 24 + idx * 12,
-  createdAt: new Date().toISOString(),
-}));
+function loadJsonStore<T>(filePath: string, fallback: T): T {
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error(`Notice: using default for ${path.basename(filePath)}`);
+  }
+  return fallback;
+}
 
-let submissionsStore: TaskSubmission[] = [...DEMO_SUBMISSIONS];
-let withdrawalsStore: Withdrawal[] = [...DEMO_WITHDRAWALS];
+function saveJsonStore<T>(filePath: string, data: T): void {
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.error(`Failed to save ${path.basename(filePath)} to disk:`, e);
+  }
+}
+
+let settingsStore: AppSettings = loadJsonStore<AppSettings>(SETTINGS_FILE, { ...DEFAULT_SETTINGS });
+let tasksStore: Task[] = loadJsonStore<Task[]>(
+  TASKS_FILE,
+  INITIAL_TASKS.map((t, idx) => ({
+    ...t,
+    id: `task_${idx + 1}_${Date.now()}`,
+    totalCompleted: 24 + idx * 12,
+    createdAt: new Date().toISOString(),
+  }))
+);
+let submissionsStore: TaskSubmission[] = loadJsonStore<TaskSubmission[]>(SUBMISSIONS_FILE, [...DEMO_SUBMISSIONS]);
+let withdrawalsStore: Withdrawal[] = loadJsonStore<Withdrawal[]>(WITHDRAWALS_FILE, [...DEMO_WITHDRAWALS]);
 let transactionsStore: Transaction[] = [...DEMO_TRANSACTIONS];
-let announcementsStore: Announcement[] = INITIAL_ANNOUNCEMENTS.map((a, idx) => ({
-  ...a,
-  id: `ann_${idx + 1}_${Date.now()}`,
-  createdAt: new Date().toISOString(),
-}));
-let settingsStore: AppSettings = { ...DEFAULT_SETTINGS };
+let announcementsStore: Announcement[] = loadJsonStore<Announcement[]>(
+  ANNOUNCEMENTS_FILE,
+  INITIAL_ANNOUNCEMENTS.map((a, idx) => ({
+    ...a,
+    id: `ann_${idx + 1}_${Date.now()}`,
+    createdAt: new Date().toISOString(),
+  }))
+);
 
 /**
  * 1. Health & Server Status
@@ -1135,10 +1222,18 @@ app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
     // Success! Clean up used OTP
     phoneOtpStore.delete(cleanMobile);
 
+    loadUsersRegistry();
+    const existingUser = Array.from(usersStore.values()).find(
+      (u) =>
+        (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanMobile) ||
+        u.uid === `user_phone_${cleanMobile}`
+    );
+
     res.json({
       success: true,
       message: 'Mobile number verified successfully!',
       verifiedMobile: cleanMobile,
+      user: existingUser || undefined,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || 'Verification failed.' });
@@ -1249,7 +1344,14 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
         createdAt: new Date().toISOString(),
       });
     } else {
-      // Existing user logging in: update last seen
+      // Existing user logging in: update details & credentials
+      if (password) user.password = password;
+      if (name && (!user.name || user.name.startsWith('User '))) user.name = name;
+      if (email && !user.email) user.email = email;
+      if (cleanMobile && !user.mobile) user.mobile = `+91 ${cleanMobile}`;
+      usersStore.set(user.uid, user);
+      saveUsersRegistry();
+
       const devRecord = deviceRegistry.get(validation.deviceHash);
       if (devRecord) {
         devRecord.lastSeenAt = new Date().toISOString();
@@ -1268,7 +1370,7 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
  */
 app.post('/api/auth/password-login', (req: Request, res: Response) => {
   try {
-    const { identifier, password } = req.body;
+    const { identifier, password, cachedUser } = req.body;
     const cleanId = (identifier || '').trim();
     const cleanPass = (password || '').trim();
 
@@ -1277,21 +1379,57 @@ app.post('/api/auth/password-login', (req: Request, res: Response) => {
       return;
     }
 
-    let foundUser: UserProfile | undefined;
+    // Refresh store from disk if needed
+    loadUsersRegistry();
 
-    if (cleanId.includes('@')) {
-      // Lookup by email (case-insensitive)
-      foundUser = Array.from(usersStore.values()).find(
-        (u) => u.email && u.email.toLowerCase() === cleanId.toLowerCase()
-      );
-    } else {
-      // Lookup by 10-digit mobile
-      const cleanDigits = cleanId.replace(/[^0-9]/g, '').slice(-10);
-      foundUser = Array.from(usersStore.values()).find(
-        (u) =>
-          u.uid === `user_phone_${cleanDigits}` ||
-          (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanDigits)
-      );
+    let foundUser: UserProfile | undefined;
+    const cleanDigits = cleanId.replace(/[^0-9]/g, '').slice(-10);
+    const cleanEmail = cleanId.toLowerCase();
+
+    // 1. Search in usersStore
+    for (const u of usersStore.values()) {
+      const uDigits = (u.mobile || '').replace(/[^0-9]/g, '').slice(-10);
+      const uEmail = (u.email || '').toLowerCase().trim();
+      const uUid = (u.uid || '').toLowerCase().trim();
+
+      if (cleanEmail.includes('@') && uEmail === cleanEmail) {
+        foundUser = u;
+        break;
+      }
+      if (cleanDigits.length === 10 && (uDigits === cleanDigits || uUid === `user_phone_${cleanDigits}` || uUid.includes(cleanDigits))) {
+        foundUser = u;
+        break;
+      }
+      if (uUid === cleanId.toLowerCase()) {
+        foundUser = u;
+        break;
+      }
+    }
+
+    // 2. If not found in usersStore but client provides cachedUser (e.g. from local storage or Firestore)
+    if (!foundUser && cachedUser) {
+      const fallbackUid = (cachedUser.uid || (cleanDigits ? `user_phone_${cleanDigits}` : `user_${Date.now()}`)).trim();
+      const fallbackUser: UserProfile = {
+        uid: fallbackUid,
+        name: cachedUser.name || 'User',
+        mobile: cachedUser.mobile || (cleanDigits ? `+91 ${cleanDigits}` : ''),
+        email: cachedUser.email || (cleanEmail.includes('@') ? cleanEmail : ''),
+        password: cachedUser.password || cleanPass,
+        referralCode: cachedUser.referralCode || 'FE' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+        coins: Number(cachedUser.coins) || 0,
+        todayEarnings: Number(cachedUser.todayEarnings) || 0,
+        totalEarnings: Number(cachedUser.totalEarnings) || 0,
+        totalWithdrawn: Number(cachedUser.totalWithdrawn) || 0,
+        pendingWithdrawalCoins: Number(cachedUser.pendingWithdrawalCoins) || 0,
+        level: cachedUser.level || 'Bronze',
+        isBlocked: Boolean(cachedUser.isBlocked),
+        consecutiveCheckIns: Number(cachedUser.consecutiveCheckIns) || 0,
+        adsWatchedToday: Number(cachedUser.adsWatchedToday) || 0,
+        createdAt: cachedUser.createdAt || new Date().toISOString(),
+      };
+      foundUser = fallbackUser;
+      usersStore.set(fallbackUid, fallbackUser);
+      saveUsersRegistry();
     }
 
     if (!foundUser) {
@@ -1311,7 +1449,7 @@ app.post('/api/auth/password-login', (req: Request, res: Response) => {
     }
 
     // Password verification (if set on account)
-    if (foundUser.password && foundUser.password !== cleanPass) {
+    if (foundUser.password && (foundUser.password || '').trim() !== cleanPass.trim()) {
       res.status(401).json({
         success: false,
         error: 'Galat Password! Kripya sahi password enter karein.',
@@ -1319,7 +1457,7 @@ app.post('/api/auth/password-login', (req: Request, res: Response) => {
       return;
     }
 
-    // If account was created before password field, associate the password now
+    // If account was created before password field or password was empty, associate it now
     if (!foundUser.password && cleanPass) {
       foundUser.password = cleanPass;
       usersStore.set(foundUser.uid, foundUser);
@@ -1343,6 +1481,10 @@ app.post('/api/auth/password-login', (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || 'Login failed' });
   }
+});
+
+app.get(['/admin', '/admin-portal', '/portal'], (_req: Request, res: Response) => {
+  res.redirect('/#/admin');
 });
 
 /**
@@ -1655,6 +1797,7 @@ app.get('/api/referrals/team/:uid', (req: Request, res: Response) => {
  * 3. User Profiles
  */
 app.get('/api/users/:uid', (req: Request, res: Response) => {
+  loadUsersRegistry();
   const query = (req.params.uid || '').trim();
   let user = usersStore.get(query);
   if (!user) {
@@ -1677,6 +1820,7 @@ app.get('/api/users/:uid', (req: Request, res: Response) => {
 });
 
 app.put('/api/users/:uid', (req: Request, res: Response) => {
+  loadUsersRegistry();
   const query = (req.params.uid || '').trim();
   let existing = usersStore.get(query);
   if (!existing) {
@@ -1701,7 +1845,20 @@ app.put('/api/users/:uid', (req: Request, res: Response) => {
   res.json({ success: true, user: updated });
 });
 
+app.delete('/api/users/:uid', (req: Request, res: Response) => {
+  loadUsersRegistry();
+  const query = (req.params.uid || '').trim();
+  usersStore.delete(query);
+  const cleanDigits = query.replace(/[^0-9]/g, '').slice(-10);
+  if (cleanDigits.length === 10) {
+    usersStore.delete(`user_phone_${cleanDigits}`);
+  }
+  saveUsersRegistry();
+  res.json({ success: true, message: 'User deleted successfully' });
+});
+
 app.get('/api/users', (_req: Request, res: Response) => {
+  loadUsersRegistry();
   res.json({ success: true, users: Array.from(usersStore.values()) });
 });
 
@@ -1709,10 +1866,12 @@ app.get('/api/users', (_req: Request, res: Response) => {
  * 4. Tasks & Proof Submissions
  */
 app.get('/api/tasks', (_req: Request, res: Response) => {
+  tasksStore = loadJsonStore<Task[]>(TASKS_FILE, tasksStore);
   res.json({ success: true, tasks: tasksStore });
 });
 
 app.post('/api/tasks', (req: Request, res: Response) => {
+  tasksStore = loadJsonStore<Task[]>(TASKS_FILE, tasksStore);
   const id = `task_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const task: Task = {
     ...req.body,
@@ -1720,21 +1879,26 @@ app.post('/api/tasks', (req: Request, res: Response) => {
     createdAt: new Date().toISOString(),
   };
   tasksStore.unshift(task);
+  saveJsonStore(TASKS_FILE, tasksStore);
   res.json({ success: true, task });
 });
 
 app.put('/api/tasks/:id', (req: Request, res: Response) => {
+  tasksStore = loadJsonStore<Task[]>(TASKS_FILE, tasksStore);
   const idx = tasksStore.findIndex((t) => t.id === req.params.id);
   if (idx < 0) {
     res.status(404).json({ success: false, error: 'Task not found' });
     return;
   }
   tasksStore[idx] = { ...tasksStore[idx], ...req.body };
+  saveJsonStore(TASKS_FILE, tasksStore);
   res.json({ success: true, task: tasksStore[idx] });
 });
 
 app.delete('/api/tasks/:id', (req: Request, res: Response) => {
+  tasksStore = loadJsonStore<Task[]>(TASKS_FILE, tasksStore);
   tasksStore = tasksStore.filter((t) => t.id !== req.params.id);
+  saveJsonStore(TASKS_FILE, tasksStore);
   res.json({ success: true, message: 'Task deleted' });
 });
 
@@ -1747,6 +1911,7 @@ app.post('/api/submissions', (req: Request, res: Response) => {
     submittedAt: new Date().toISOString(),
   };
   submissionsStore.unshift(sub);
+  saveJsonStore(SUBMISSIONS_FILE, submissionsStore);
   res.json({ success: true, submission: sub });
 });
 
@@ -1780,6 +1945,7 @@ app.post('/api/submissions/:id/review', (req: Request, res: Response) => {
       user.todayEarnings += sub.rewardCoins;
       user.totalEarnings += sub.rewardCoins;
       usersStore.set(user.uid, user);
+      saveUsersRegistry();
 
       transactionsStore.unshift({
         id: `txn_${Date.now()}`,
@@ -1795,6 +1961,7 @@ app.post('/api/submissions/:id/review', (req: Request, res: Response) => {
     }
   }
 
+  saveJsonStore(SUBMISSIONS_FILE, submissionsStore);
   res.json({ success: true, submission: sub });
 });
 
@@ -1802,44 +1969,84 @@ app.post('/api/submissions/:id/review', (req: Request, res: Response) => {
  * 5. Withdrawals (UPI / Bank)
  */
 app.post('/api/withdrawals', (req: Request, res: Response) => {
+  settingsStore = loadJsonStore<AppSettings>(SETTINGS_FILE, settingsStore);
+  if (settingsStore.withdrawalsEnabled === false) {
+    res.status(400).json({
+      success: false,
+      error: settingsStore.withdrawalsDisabledReason || 'Withdrawals are currently paused for system maintenance.',
+    });
+    return;
+  }
+
+  withdrawalsStore = loadJsonStore<Withdrawal[]>(WITHDRAWALS_FILE, withdrawalsStore);
+  loadUsersRegistry();
+
   const { userId, amountCoins, method, upiId, bankAccountNumber, bankIfsc, bankAccountName } = req.body;
-  const user = usersStore.get(userId);
+  const numCoins = Number(amountCoins) || 0;
+
+  let user = usersStore.get(userId);
+  if (!user && req.body.userMobile) {
+    const cleanDigits = (req.body.userMobile || '').replace(/[^0-9]/g, '').slice(-10);
+    user = Array.from(usersStore.values()).find(
+      (u) =>
+        (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanDigits) ||
+        u.uid === `user_phone_${cleanDigits}`
+    );
+  }
+
+  let activeUser: UserProfile;
   if (!user) {
-    res.status(404).json({ success: false, error: 'User not found' });
-    return;
-  }
-  if (user.coins < amountCoins) {
-    res.status(400).json({ success: false, error: 'Insufficient coin balance' });
-    return;
-  }
-  if (amountCoins < settingsStore.minWithdrawalCoins) {
-    res.status(400).json({ success: false, error: `Minimum withdrawal is ${settingsStore.minWithdrawalCoins} coins` });
-    return;
+    const cleanDigits = (req.body.userMobile || '').replace(/[^0-9]/g, '').slice(-10);
+    activeUser = {
+      uid: userId || (cleanDigits ? `user_phone_${cleanDigits}` : `user_${Date.now()}`),
+      name: req.body.userName || (cleanDigits ? `User ${cleanDigits.slice(-4)}` : 'App User'),
+      mobile: req.body.userMobile || (cleanDigits ? `+91 ${cleanDigits}` : ''),
+      referralCode: 'FE' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+      coins: 0,
+      todayEarnings: 0,
+      totalEarnings: 0,
+      totalWithdrawn: 0,
+      pendingWithdrawalCoins: numCoins,
+      level: 'Bronze',
+      isBlocked: false,
+      consecutiveCheckIns: 0,
+      adsWatchedToday: 0,
+      createdAt: new Date().toISOString(),
+    };
+    usersStore.set(activeUser.uid, activeUser);
+    saveUsersRegistry();
+  } else {
+    user.coins = Math.max(0, user.coins - numCoins);
+    user.pendingWithdrawalCoins = (user.pendingWithdrawalCoins || 0) + numCoins;
+    usersStore.set(user.uid, user);
+    saveUsersRegistry();
+    activeUser = user;
   }
 
-  // Deduct coins & record pending withdrawal
-  user.coins -= amountCoins;
-  user.pendingWithdrawalCoins = (user.pendingWithdrawalCoins || 0) + amountCoins;
-  usersStore.set(userId, user);
-
-  const id = `wd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const id = req.body.id || `wd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const withdrawal: Withdrawal = {
     id,
-    userId,
-    userName: user.name,
-    userMobile: user.mobile,
-    amountCoins,
-    amountCurrency: amountCoins / settingsStore.coinToCurrencyRatio,
+    userId: activeUser.uid,
+    userName: req.body.userName || activeUser.name,
+    userMobile: req.body.userMobile || activeUser.mobile,
+    amountCoins: numCoins,
+    amountCurrency: numCoins / (settingsStore.coinToCurrencyRatio || 100),
     method,
     upiId,
     bankAccountNumber,
     bankIfsc,
     bankAccountName,
-    status: 'pending',
-    requestedAt: new Date().toISOString(),
+    status: req.body.status || 'pending',
+    requestedAt: req.body.requestedAt || new Date().toISOString(),
   };
 
-  withdrawalsStore.unshift(withdrawal);
+  const existingIdx = withdrawalsStore.findIndex((w) => w.id === id);
+  if (existingIdx >= 0) {
+    withdrawalsStore[existingIdx] = withdrawal;
+  } else {
+    withdrawalsStore.unshift(withdrawal);
+  }
+  saveJsonStore(WITHDRAWALS_FILE, withdrawalsStore);
 
   transactionsStore.unshift({
     id: `txn_${Date.now()}`,
@@ -1857,6 +2064,7 @@ app.post('/api/withdrawals', (req: Request, res: Response) => {
 });
 
 app.get('/api/withdrawals', (req: Request, res: Response) => {
+  withdrawalsStore = loadJsonStore<Withdrawal[]>(WITHDRAWALS_FILE, withdrawalsStore);
   const { userId } = req.query;
   if (userId) {
     res.json({ success: true, withdrawals: withdrawalsStore.filter((w) => w.userId === userId) });
@@ -1866,6 +2074,8 @@ app.get('/api/withdrawals', (req: Request, res: Response) => {
 });
 
 app.post('/api/withdrawals/:id/review', (req: Request, res: Response) => {
+  withdrawalsStore = loadJsonStore<Withdrawal[]>(WITHDRAWALS_FILE, withdrawalsStore);
+  loadUsersRegistry();
   const { status, adminNotes, rejectionReason, txnHash } = req.body;
   const idx = withdrawalsStore.findIndex((w) => w.id === req.params.id);
   if (idx < 0) {
@@ -1903,8 +2113,10 @@ app.post('/api/withdrawals/:id/review', (req: Request, res: Response) => {
       });
     }
     usersStore.set(user.uid, user);
+    saveUsersRegistry();
   }
 
+  saveJsonStore(WITHDRAWALS_FILE, withdrawalsStore);
   res.json({ success: true, withdrawal: wd, user });
 });
 
@@ -1935,22 +2147,39 @@ app.post('/api/transactions', (req: Request, res: Response) => {
  * 7. Announcements
  */
 app.get('/api/announcements', (_req: Request, res: Response) => {
+  announcementsStore = loadJsonStore<Announcement[]>(ANNOUNCEMENTS_FILE, announcementsStore);
   res.json({ success: true, announcements: announcementsStore });
 });
 
 app.post('/api/announcements', (req: Request, res: Response) => {
-  const id = `ann_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  announcementsStore = loadJsonStore<Announcement[]>(ANNOUNCEMENTS_FILE, announcementsStore);
+  const id = req.body.id || `ann_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const ann: Announcement = {
     ...req.body,
     id,
-    createdAt: new Date().toISOString(),
+    createdAt: req.body.createdAt || new Date().toISOString(),
   };
   announcementsStore.unshift(ann);
+  saveJsonStore(ANNOUNCEMENTS_FILE, announcementsStore);
   res.json({ success: true, announcement: ann });
 });
 
+app.put('/api/announcements/:id', (req: Request, res: Response) => {
+  announcementsStore = loadJsonStore<Announcement[]>(ANNOUNCEMENTS_FILE, announcementsStore);
+  const idx = announcementsStore.findIndex((a) => a.id === req.params.id);
+  if (idx < 0) {
+    res.status(404).json({ success: false, error: 'Announcement not found' });
+    return;
+  }
+  announcementsStore[idx] = { ...announcementsStore[idx], ...req.body };
+  saveJsonStore(ANNOUNCEMENTS_FILE, announcementsStore);
+  res.json({ success: true, announcement: announcementsStore[idx] });
+});
+
 app.delete('/api/announcements/:id', (req: Request, res: Response) => {
+  announcementsStore = loadJsonStore<Announcement[]>(ANNOUNCEMENTS_FILE, announcementsStore);
   announcementsStore = announcementsStore.filter((a) => a.id !== req.params.id);
+  saveJsonStore(ANNOUNCEMENTS_FILE, announcementsStore);
   res.json({ success: true, message: 'Announcement deleted' });
 });
 
@@ -1958,11 +2187,14 @@ app.delete('/api/announcements/:id', (req: Request, res: Response) => {
  * 8. App Settings
  */
 app.get('/api/settings', (_req: Request, res: Response) => {
+  settingsStore = loadJsonStore<AppSettings>(SETTINGS_FILE, settingsStore);
   res.json({ success: true, settings: settingsStore });
 });
 
 app.put('/api/settings', (req: Request, res: Response) => {
+  settingsStore = loadJsonStore<AppSettings>(SETTINGS_FILE, settingsStore);
   settingsStore = { ...settingsStore, ...req.body };
+  saveJsonStore(SETTINGS_FILE, settingsStore);
   res.json({ success: true, settings: settingsStore });
 });
 
@@ -1970,16 +2202,37 @@ app.put('/api/settings', (req: Request, res: Response) => {
  * 9. Daily Bonuses & Check-Ins
  */
 app.post('/api/bonuses/claim-checkin', (req: Request, res: Response) => {
+  settingsStore = loadJsonStore<AppSettings>(SETTINGS_FILE, settingsStore);
+  if (settingsStore.dailyCheckInEnabled === false) {
+    res.status(400).json({ success: false, error: 'Daily Check-in is currently paused by administrator.' });
+    return;
+  }
+
+  loadUsersRegistry();
   const { userId } = req.body;
-  const user = usersStore.get(userId);
+  const cleanDigits = (userId || '').replace(/[^0-9]/g, '').slice(-10);
+  let user = usersStore.get(userId);
+  if (!user && cleanDigits.length === 10) {
+    user = Array.from(usersStore.values()).find(
+      (u) =>
+        u.uid === `user_phone_${cleanDigits}` ||
+        (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanDigits)
+    );
+  }
+
   if (!user) {
     res.status(404).json({ success: false, error: 'User not found' });
     return;
   }
 
-  const today = new Date().toISOString().split('T')[0];
-  if (user.lastCheckInDate === today) {
-    res.status(400).json({ success: false, error: 'Already checked in today' });
+  const today = getTodayDateString();
+  const utcToday = new Date().toISOString().split('T')[0];
+  if (
+    user.lastCheckInDate === today ||
+    user.lastCheckInDate === utcToday ||
+    (user.lastCheckInDate && user.lastCheckInDate.startsWith(today))
+  ) {
+    res.status(400).json({ success: false, error: 'Aap aaj ka Check-in reward already claim kar chuke hain! Kripya kal dobara aaiye.' });
     return;
   }
 
@@ -1993,11 +2246,12 @@ app.post('/api/bonuses/claim-checkin', (req: Request, res: Response) => {
   user.totalEarnings += rewardCoins;
   user.lastCheckInDate = today;
   user.consecutiveCheckIns = newStreak;
-  usersStore.set(userId, user);
+  usersStore.set(user.uid, user);
+  saveUsersRegistry();
 
   transactionsStore.unshift({
     id: `txn_checkin_${Date.now()}`,
-    userId,
+    userId: user.uid,
     type: 'checkin',
     amountCoins: rewardCoins,
     amountCurrency: rewardCoins / settingsStore.coinToCurrencyRatio,
@@ -2010,22 +2264,54 @@ app.post('/api/bonuses/claim-checkin', (req: Request, res: Response) => {
 });
 
 app.post('/api/bonuses/claim-daily', (req: Request, res: Response) => {
+  settingsStore = loadJsonStore<AppSettings>(SETTINGS_FILE, settingsStore);
+  if (settingsStore.dailyBonusEnabled === false) {
+    res.status(400).json({ success: false, error: 'Daily Bonus is currently paused by administrator.' });
+    return;
+  }
+
+  loadUsersRegistry();
   const { userId } = req.body;
-  const user = usersStore.get(userId);
+  const cleanDigits = (userId || '').replace(/[^0-9]/g, '').slice(-10);
+  let user = usersStore.get(userId);
+  if (!user && cleanDigits.length === 10) {
+    user = Array.from(usersStore.values()).find(
+      (u) =>
+        u.uid === `user_phone_${cleanDigits}` ||
+        (u.mobile && u.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanDigits)
+    );
+  }
+
   if (!user) {
     res.status(404).json({ success: false, error: 'User not found' });
     return;
   }
 
-  const bonusCoins = settingsStore.dailyBonusCoins || 15;
+  const today = getTodayDateString();
+  const utcToday = new Date().toISOString().split('T')[0];
+  if (
+    user.lastDailyBonusDate === today ||
+    user.lastDailyBonusDate === utcToday ||
+    (user.lastDailyBonusDate && user.lastDailyBonusDate.startsWith(today))
+  ) {
+    res.status(400).json({ success: false, error: 'Aap aaj ka Daily Bonus already claim kar chuke hain! Din me sirf 1 baar claim kar sakte hain.' });
+    return;
+  }
+
+  const minB = settingsStore.dailyBonusMinCoins || settingsStore.dailyBonusCoins || 10;
+  const maxB = settingsStore.dailyBonusMaxCoins || settingsStore.dailyBonusCoins || 50;
+  const bonusCoins = Math.floor(Math.random() * (maxB - minB + 1)) + minB;
+
   user.coins += bonusCoins;
   user.todayEarnings += bonusCoins;
   user.totalEarnings += bonusCoins;
-  usersStore.set(userId, user);
+  user.lastDailyBonusDate = today;
+  usersStore.set(user.uid, user);
+  saveUsersRegistry();
 
   transactionsStore.unshift({
     id: `txn_dailybonus_${Date.now()}`,
-    userId,
+    userId: user.uid,
     type: 'daily_bonus',
     amountCoins: bonusCoins,
     amountCurrency: bonusCoins / settingsStore.coinToCurrencyRatio,

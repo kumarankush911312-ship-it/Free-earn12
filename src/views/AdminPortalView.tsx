@@ -29,8 +29,9 @@ import {
   AlertTriangle,
   History,
   RotateCcw,
+  Gift,
 } from 'lucide-react';
-import { Task, TaskSubmission, Withdrawal, UserProfile } from '../types';
+import { Task, TaskSubmission, Withdrawal, UserProfile, AppSettings, TaskCategory } from '../types';
 import {
   fetchSecurityEvents,
   fetchFlaggedAccounts,
@@ -59,10 +60,14 @@ export const AdminPortalView: React.FC = () => {
     adminRejectTask,
     adminProcessWithdrawalAction,
     adminCreateNewTask,
+    adminUpdateTask,
     adminDeleteTask,
     adminUpdateAppSettings,
     adminAdjustBalance,
     adminToggleUserBlock,
+    adminResetDailyBonusForUser,
+    adminResetStreakForUser,
+    adminDeleteUser,
     adminPostAnnouncement,
     adminDeleteAnnouncement,
     refreshAllData,
@@ -96,7 +101,7 @@ export const AdminPortalView: React.FC = () => {
   };
 
   const [activeSection, setActiveSection] = useState<
-    'overview' | 'withdrawals' | 'submissions' | 'users' | 'tasks' | 'settings' | 'broadcast' | 'security'
+    'overview' | 'app_controls' | 'withdrawals' | 'submissions' | 'users' | 'tasks' | 'settings' | 'broadcast' | 'security'
   >('overview');
 
   const [refreshing, setRefreshing] = useState(false);
@@ -185,7 +190,7 @@ export const AdminPortalView: React.FC = () => {
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newReward, setNewReward] = useState(150);
-  const [newCategory, setNewCategory] = useState<'app' | 'survey' | 'social' | 'daily'>('app');
+  const [newCategory, setNewCategory] = useState<TaskCategory>('app');
   const [newInstructions, setNewInstructions] = useState('');
   const [newUrl, setNewUrl] = useState('');
 
@@ -202,6 +207,74 @@ export const AdminPortalView: React.FC = () => {
   const [admobAppId, setAdmobAppId] = useState(settings.admobAppId || 'ca-app-pub-7524191132114722~4422067441');
   const [admobRewardedUnitId, setAdmobRewardedUnitId] = useState(settings.admobRewardedUnitId || 'ca-app-pub-7524191132114722/4622212147');
   const [admobBannerUnitId, setAdmobBannerUnitId] = useState(settings.admobBannerUnitId || 'ca-app-pub-7524191132114722/4622212147');
+
+  // Master App Feature Controls State
+  const [maintenanceMode, setMaintenanceMode] = useState<boolean>(Boolean(settings.maintenanceMode));
+  const [maintenanceMessage, setMaintenanceMessage] = useState<string>(settings.maintenanceMessage || '');
+  const [dailyCheckInEnabled, setDailyCheckInEnabled] = useState<boolean>(settings.dailyCheckInEnabled !== false);
+  const [checkInRewardsList, setCheckInRewardsList] = useState<number[]>(settings.checkInRewards || [10, 15, 20, 25, 35, 50, 100]);
+  const [dailyBonusEnabled, setDailyBonusEnabled] = useState<boolean>(settings.dailyBonusEnabled !== false);
+  const [dailyBonusMinCoins, setDailyBonusMinCoins] = useState<number>(settings.dailyBonusMinCoins || 10);
+  const [dailyBonusMaxCoins, setDailyBonusMaxCoins] = useState<number>(settings.dailyBonusMaxCoins || 50);
+  const [videoAdsEnabled, setVideoAdsEnabled] = useState<boolean>(settings.videoAdsEnabled !== false);
+  const [adCooldownSeconds, setAdCooldownSeconds] = useState<number>(settings.adCooldownSeconds || 30);
+  const [tasksEnabled, setTasksEnabled] = useState<boolean>(settings.tasksEnabled !== false);
+  const [referralEnabled, setReferralEnabled] = useState<boolean>(settings.referralEnabled !== false);
+  const [withdrawalsEnabled, setWithdrawalsEnabled] = useState<boolean>(settings.withdrawalsEnabled !== false);
+  const [withdrawalsDisabledReason, setWithdrawalsDisabledReason] = useState<string>(settings.withdrawalsDisabledReason || '');
+  const [allowedMethods, setAllowedMethods] = useState<('upi' | 'bank' | 'paytm' | 'phonepe')[]>(
+    settings.allowedWithdrawalMethods || ['upi', 'bank', 'paytm', 'phonepe']
+  );
+  const [homeNoticeActive, setHomeNoticeActive] = useState<boolean>(Boolean(settings.homeNoticeActive));
+  const [homeNoticeText, setHomeNoticeText] = useState<string>(settings.homeNoticeText || '');
+
+  // Task edit state
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editReward, setEditReward] = useState(150);
+  const [editCategory, setEditCategory] = useState<TaskCategory>('app');
+  const [editInstructions, setEditInstructions] = useState('');
+  const [editUrl, setEditUrl] = useState('');
+  const [editStatus, setEditStatus] = useState<'active' | 'paused' | 'completed'>('active');
+
+  // Sync settings when updated
+  React.useEffect(() => {
+    setMinWdCoins(settings.minWithdrawalCoins);
+    setRefCoins(settings.referralRewardCoins);
+    setJoinBonusCoins(settings.referralJoinBonusCoins);
+    setAdReward(settings.adRewardCoins);
+    setDailyAdCap(settings.dailyAdLimit);
+    setCoinRatio(settings.coinToCurrencyRatio || 100);
+    setDailyBonus(settings.dailyBonusCoins || 15);
+    setSupportEmail(settings.supportEmail || 'support@freeearn.app');
+    setSupportWhatsapp(settings.supportWhatsapp || '+91 9113124207');
+    setMaintenanceMode(Boolean(settings.maintenanceMode));
+    setMaintenanceMessage(settings.maintenanceMessage || '');
+    setDailyCheckInEnabled(settings.dailyCheckInEnabled !== false);
+    setCheckInRewardsList(settings.checkInRewards || [10, 15, 20, 25, 35, 50, 100]);
+    setDailyBonusEnabled(settings.dailyBonusEnabled !== false);
+    setDailyBonusMinCoins(settings.dailyBonusMinCoins || 10);
+    setDailyBonusMaxCoins(settings.dailyBonusMaxCoins || 50);
+    setVideoAdsEnabled(settings.videoAdsEnabled !== false);
+    setAdCooldownSeconds(settings.adCooldownSeconds || 30);
+    setTasksEnabled(settings.tasksEnabled !== false);
+    setReferralEnabled(settings.referralEnabled !== false);
+    setWithdrawalsEnabled(settings.withdrawalsEnabled !== false);
+    setWithdrawalsDisabledReason(settings.withdrawalsDisabledReason || '');
+    setAllowedMethods(settings.allowedWithdrawalMethods || ['upi', 'bank', 'paytm', 'phonepe']);
+    setHomeNoticeActive(Boolean(settings.homeNoticeActive));
+    setHomeNoticeText(settings.homeNoticeText || '');
+  }, [settings]);
+
+  // Live real-time sync for withdrawals, users, and submissions in Admin Portal
+  React.useEffect(() => {
+    refreshAllData();
+    const interval = setInterval(() => {
+      refreshAllData();
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [refreshAllData]);
 
   // Announcement form
   const [annTitle, setAnnTitle] = useState('');
@@ -227,6 +300,8 @@ export const AdminPortalView: React.FC = () => {
     await adminAdjustBalance(selectedUserForAdjust.uid, adjustAmount, adjustReason);
     setSelectedUserForAdjust(null);
     setAdjustReason('');
+    setCopyToast(`Balance adjusted for ${selectedUserForAdjust.name}`);
+    setTimeout(() => setCopyToast(null), 2500);
   };
 
   const handleCreateTaskSubmit = async (e: React.FormEvent) => {
@@ -252,10 +327,48 @@ export const AdminPortalView: React.FC = () => {
     setNewDesc('');
     setNewInstructions('');
     setNewUrl('');
+    setCopyToast('New task published to marketplace!');
+    setTimeout(() => setCopyToast(null), 2500);
   };
 
-  const handleSaveSettings = async (e: React.FormEvent) => {
+  const openEditTask = (t: Task) => {
+    setEditingTask(t);
+    setEditTitle(t.title);
+    setEditDesc(t.description);
+    setEditReward(t.rewardCoins);
+    setEditCategory(t.category);
+    setEditInstructions(t.instructions || '');
+    setEditUrl(t.externalUrl || '');
+    setEditStatus(t.status || 'active');
+  };
+
+  const handleSaveTaskEdit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!editingTask) return;
+    await adminUpdateTask(editingTask.id, {
+      title: editTitle,
+      description: editDesc,
+      rewardCoins: Number(editReward),
+      category: editCategory,
+      instructions: editInstructions,
+      stepGuide: editInstructions.split('\n').filter((l) => l.trim().length > 0),
+      externalUrl: editUrl,
+      status: editStatus,
+    });
+    setEditingTask(null);
+    setCopyToast(`Task "${editTitle}" updated successfully!`);
+    setTimeout(() => setCopyToast(null), 2500);
+  };
+
+  const handleToggleTaskStatus = async (t: Task) => {
+    const nextStatus = t.status === 'active' ? 'paused' : 'active';
+    await adminUpdateTask(t.id, { status: nextStatus });
+    setCopyToast(`Task "${t.title}" is now ${nextStatus.toUpperCase()}`);
+    setTimeout(() => setCopyToast(null), 2500);
+  };
+
+  const handleSaveSettings = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     await adminUpdateAppSettings({
       minWithdrawalCoins: Number(minWdCoins),
       referralRewardCoins: Number(refCoins),
@@ -264,13 +377,35 @@ export const AdminPortalView: React.FC = () => {
       dailyAdLimit: Number(dailyAdCap),
       coinToCurrencyRatio: Number(coinRatio),
       dailyBonusCoins: Number(dailyBonus),
+      dailyBonusMinCoins: Number(dailyBonusMinCoins),
+      dailyBonusMaxCoins: Number(dailyBonusMaxCoins),
       supportEmail: supportEmail,
       supportWhatsapp: supportWhatsapp,
       admobAppId: admobAppId,
       admobRewardedUnitId: admobRewardedUnitId,
       admobBannerUnitId: admobBannerUnitId,
+      maintenanceMode: maintenanceMode,
+      maintenanceMessage: maintenanceMessage,
+      dailyCheckInEnabled: dailyCheckInEnabled,
+      checkInRewards: checkInRewardsList,
+      dailyBonusEnabled: dailyBonusEnabled,
+      videoAdsEnabled: videoAdsEnabled,
+      adCooldownSeconds: Number(adCooldownSeconds),
+      tasksEnabled: tasksEnabled,
+      referralEnabled: referralEnabled,
+      withdrawalsEnabled: withdrawalsEnabled,
+      withdrawalsDisabledReason: withdrawalsDisabledReason,
+      allowedWithdrawalMethods: allowedMethods,
+      homeNoticeActive: homeNoticeActive,
+      homeNoticeText: homeNoticeText,
     });
-    setCopyToast('Settings & AdMob IDs Saved Successfully!');
+    setCopyToast('Settings & App Controls Saved Successfully!');
+    setTimeout(() => setCopyToast(null), 2500);
+  };
+
+  const handleQuickToggle = async (key: keyof AppSettings, val: any, label: string) => {
+    await adminUpdateAppSettings({ [key]: val });
+    setCopyToast(`${label}: ${val ? 'Activated (ON)' : 'Disabled (OFF)'}`);
     setTimeout(() => setCopyToast(null), 2500);
   };
 
@@ -412,7 +547,7 @@ export const AdminPortalView: React.FC = () => {
             </div>
           </div>
 
-          {/* Action Center */}
+            {/* Action Center */}
           <div className="flex items-center space-x-2.5">
             {copyToast && (
               <span className="text-xs font-bold text-emerald-300 px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 rounded-xl animate-pulse">
@@ -420,13 +555,26 @@ export const AdminPortalView: React.FC = () => {
               </span>
             )}
 
+            {/* Copy User App Link */}
             <button
-              onClick={() => copyToClipboard(`${window.location.origin}/#/admin`, 'Admin Panel Link Copied!')}
-              className="px-3 py-1.5 rounded-xl bg-rose-950/70 hover:bg-rose-900/80 border border-rose-600/50 text-rose-200 text-xs font-semibold flex items-center space-x-1.5 transition-all shadow-sm"
+              onClick={() => copyToClipboard(`${window.location.origin}/`, 'User App Link Copied! Share with earners.')}
+              className="px-3 py-1.5 rounded-xl bg-indigo-950/80 hover:bg-indigo-900/90 border border-indigo-500/50 text-indigo-200 text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm"
+              title="Copy User App link to share with users"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden sm:inline">User App Link</span>
+              <span className="sm:hidden">App Link</span>
+            </button>
+
+            {/* Copy Admin Link */}
+            <button
+              onClick={() => copyToClipboard(`${window.location.origin}/#admin`, 'Admin Panel Link Copied! (Password: A829860k)')}
+              className="px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900/90 border border-rose-600/50 text-rose-200 text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm"
               title="Copy Direct Link to this Admin Panel"
             >
               <ExternalLink className="w-3.5 h-3.5 text-rose-400" />
-              <span>Copy Admin Link</span>
+              <span className="hidden sm:inline">Admin Link</span>
+              <span className="sm:hidden">Admin</span>
             </button>
 
             <button
@@ -436,7 +584,7 @@ export const AdminPortalView: React.FC = () => {
               title="Refresh Realtime Data"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-rose-400' : ''}`} />
-              <span className="hidden sm:inline">Refresh Data</span>
+              <span className="hidden md:inline">Refresh Data</span>
             </button>
 
             {/* Back to User Mobile App Button */}
@@ -448,7 +596,7 @@ export const AdminPortalView: React.FC = () => {
               className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 flex items-center space-x-1.5 transition-all hover:scale-[1.02]"
             >
               <Smartphone className="w-4 h-4" />
-              <span>User App</span>
+              <span>Open User App</span>
             </button>
 
             {/* Lock Admin Portal Button */}
@@ -493,6 +641,18 @@ export const AdminPortalView: React.FC = () => {
           >
             <LayoutDashboard className="w-4 h-4" />
             <span>Overview & KPIs</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSection('app_controls')}
+            className={`flex items-center space-x-2.5 px-3.5 py-2.5 rounded-2xl font-bold text-xs transition-all whitespace-nowrap ${
+              activeSection === 'app_controls'
+                ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+            }`}
+          >
+            <Sliders className="w-4 h-4 text-amber-300" />
+            <span>App Features Control</span>
           </button>
 
           <button
@@ -621,6 +781,298 @@ export const AdminPortalView: React.FC = () => {
           {/* ================= 1. OVERVIEW & KPIS ================= */}
           {activeSection === 'overview' && (
             <div className="space-y-6 animate-fadeIn">
+              {/* Dual Portals Links: User App Link + Master Admin Link */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* 1. USER APP LINK (Public Earning App for Users) */}
+                <div className="p-5 rounded-3xl bg-gradient-to-br from-indigo-950/80 via-slate-900 to-purple-950/70 border border-indigo-500/40 shadow-2xl relative overflow-hidden flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                          User App Ka Link (Public App)
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-400">All Earners</span>
+                    </div>
+
+                    <h3 className="text-base font-black text-white flex items-center space-x-2">
+                      <Smartphone className="w-5 h-5 text-indigo-400" />
+                      <span>User Mobile Earning App Link</span>
+                    </h3>
+
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Yeh link apne users, friends aur WhatsApp / Telegram channels par share karein taaki log register kar ke paise kama sakein.
+                    </p>
+
+                    <div className="pt-1">
+                      <code className="text-xs font-mono bg-slate-950/90 px-3 py-2 rounded-xl border border-indigo-800/60 text-indigo-200 select-all block break-all font-semibold">
+                        {`${window.location.origin}/`}
+                      </code>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-indigo-900/40">
+                    <button
+                      onClick={() =>
+                        copyToClipboard(`${window.location.origin}/`, 'User App Link copied to clipboard!')
+                      }
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs shadow-md shadow-indigo-600/30 flex items-center space-x-1.5 transition-all active:scale-95"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Copy User App Link</span>
+                    </button>
+
+                    <a
+                      href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                        `🎁 Join *Free Earn* App & Earn Daily Cash Rewards!\nDaily Check-ins, Tasks, Video Ads & instant UPI payouts!\n👉 Register Now: ${window.location.origin}/`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/30 flex items-center space-x-1.5 transition-all"
+                    >
+                      <span>Share on WhatsApp</span>
+                    </a>
+
+                    <button
+                      onClick={() => {
+                        setActiveTab('home');
+                        window.location.hash = '/app';
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 text-xs font-bold border border-slate-700 flex items-center space-x-1"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open App</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. MASTER ADMIN PANEL LINK (Owner Secret Portal) */}
+                <div className="p-5 rounded-3xl bg-gradient-to-br from-slate-900 via-rose-950/50 to-slate-900 border border-rose-500/40 shadow-2xl relative overflow-hidden flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-400 animate-ping" />
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                          Aapka Personal Admin Panel Link
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-semibold text-slate-300">
+                        Password: <strong className="text-white font-mono bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">A829860k</strong>
+                      </span>
+                    </div>
+
+                    <h3 className="text-base font-black text-white flex items-center space-x-2">
+                      <ShieldCheck className="w-5 h-5 text-rose-400" />
+                      <span>Direct Standalone Admin Portal Access</span>
+                    </h3>
+
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Is link ko kisi bhi device ya laptop ke browser me bookmark kar ke direct access karein. Payouts aur task verify karein.
+                    </p>
+
+                    <div className="pt-1">
+                      <code className="text-xs font-mono bg-slate-950/90 px-3 py-2 rounded-xl border border-rose-800/60 text-rose-200 select-all block break-all font-semibold">
+                        {`${window.location.origin}/#admin`}
+                      </code>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-rose-900/40">
+                    <button
+                      onClick={() =>
+                        copyToClipboard(`${window.location.origin}/#admin`, 'Personal Admin Link copied to clipboard!')
+                      }
+                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-md shadow-rose-600/30 flex items-center space-x-1.5 transition-all active:scale-95"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Copy Admin Link</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveSection('app_controls')}
+                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold border border-slate-700 transition-colors flex items-center space-x-1.5"
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                      <span>App Controls</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live User App Feature Status Matrix */}
+              <div className="p-4 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Sliders className="w-4 h-4 text-amber-400" />
+                    <h4 className="text-xs font-black text-white uppercase tracking-wider">
+                      User App Real-time Feature Controls
+                    </h4>
+                  </div>
+                  <button
+                    onClick={() => setActiveSection('app_controls')}
+                    className="text-[11px] font-bold text-rose-400 hover:underline flex items-center space-x-1"
+                  >
+                    <span>Granular Settings & Limits</span>
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+                  {/* Maintenance Mode */}
+                  <div className={`p-2.5 rounded-2xl border flex flex-col justify-between text-left transition-all ${
+                    maintenanceMode ? 'bg-rose-950/80 border-rose-500/60 text-rose-200' : 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  }`}>
+                    <span className="text-[10px] font-bold block mb-1">Maintenance</span>
+                    <button
+                      onClick={() => {
+                        const next = !maintenanceMode;
+                        setMaintenanceMode(next);
+                        handleQuickToggle('maintenanceMode', next, 'App Maintenance Mode');
+                      }}
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                        maintenanceMode ? 'bg-rose-500 text-white border-rose-400' : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {maintenanceMode ? 'ON (Locked)' : 'OFF (Live)'}
+                    </button>
+                  </div>
+
+                  {/* Daily Check-In */}
+                  <div className={`p-2.5 rounded-2xl border flex flex-col justify-between text-left transition-all ${
+                    dailyCheckInEnabled ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200' : 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  }`}>
+                    <span className="text-[10px] font-bold block mb-1">Daily Streak</span>
+                    <button
+                      onClick={() => {
+                        const next = !dailyCheckInEnabled;
+                        setDailyCheckInEnabled(next);
+                        handleQuickToggle('dailyCheckInEnabled', next, 'Daily Check-In Streak');
+                      }}
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                        dailyCheckInEnabled ? 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50' : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {dailyCheckInEnabled ? 'Active' : 'Paused'}
+                    </button>
+                  </div>
+
+                  {/* Daily Mystery Bonus */}
+                  <div className={`p-2.5 rounded-2xl border flex flex-col justify-between text-left transition-all ${
+                    dailyBonusEnabled ? 'bg-purple-950/60 border-purple-500/40 text-purple-200' : 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  }`}>
+                    <span className="text-[10px] font-bold block mb-1">Daily Bonus</span>
+                    <button
+                      onClick={() => {
+                        const next = !dailyBonusEnabled;
+                        setDailyBonusEnabled(next);
+                        handleQuickToggle('dailyBonusEnabled', next, 'Daily Mystery Bonus');
+                      }}
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                        dailyBonusEnabled ? 'bg-purple-500/30 text-purple-300 border-purple-500/50' : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {dailyBonusEnabled ? 'Active' : 'Paused'}
+                    </button>
+                  </div>
+
+                  {/* Video Ads */}
+                  <div className={`p-2.5 rounded-2xl border flex flex-col justify-between text-left transition-all ${
+                    videoAdsEnabled ? 'bg-indigo-950/60 border-indigo-500/40 text-indigo-200' : 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  }`}>
+                    <span className="text-[10px] font-bold block mb-1">Video Ads</span>
+                    <button
+                      onClick={() => {
+                        const next = !videoAdsEnabled;
+                        setVideoAdsEnabled(next);
+                        handleQuickToggle('videoAdsEnabled', next, 'Rewarded Video Ads');
+                      }}
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                        videoAdsEnabled ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/50' : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {videoAdsEnabled ? 'Active' : 'Paused'}
+                    </button>
+                  </div>
+
+                  {/* Tasks Marketplace */}
+                  <div className={`p-2.5 rounded-2xl border flex flex-col justify-between text-left transition-all ${
+                    tasksEnabled ? 'bg-blue-950/60 border-blue-500/40 text-blue-200' : 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  }`}>
+                    <span className="text-[10px] font-bold block mb-1">Tasks</span>
+                    <button
+                      onClick={() => {
+                        const next = !tasksEnabled;
+                        setTasksEnabled(next);
+                        handleQuickToggle('tasksEnabled', next, 'Tasks Marketplace');
+                      }}
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                        tasksEnabled ? 'bg-blue-500/30 text-blue-300 border-blue-500/50' : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {tasksEnabled ? 'Active' : 'Paused'}
+                    </button>
+                  </div>
+
+                  {/* Referral Program */}
+                  <div className={`p-2.5 rounded-2xl border flex flex-col justify-between text-left transition-all ${
+                    referralEnabled ? 'bg-pink-950/60 border-pink-500/40 text-pink-200' : 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  }`}>
+                    <span className="text-[10px] font-bold block mb-1">Refer & Earn</span>
+                    <button
+                      onClick={() => {
+                        const next = !referralEnabled;
+                        setReferralEnabled(next);
+                        handleQuickToggle('referralEnabled', next, 'Referral Program');
+                      }}
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                        referralEnabled ? 'bg-pink-500/30 text-pink-300 border-pink-500/50' : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {referralEnabled ? 'Active' : 'Paused'}
+                    </button>
+                  </div>
+
+                  {/* Withdrawals */}
+                  <div className={`p-2.5 rounded-2xl border flex flex-col justify-between text-left transition-all ${
+                    withdrawalsEnabled ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200' : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+                  }`}>
+                    <span className="text-[10px] font-bold block mb-1">Withdrawals</span>
+                    <button
+                      onClick={() => {
+                        const next = !withdrawalsEnabled;
+                        setWithdrawalsEnabled(next);
+                        handleQuickToggle('withdrawalsEnabled', next, 'Withdrawals Queue');
+                      }}
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                        withdrawalsEnabled ? 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50' : 'bg-rose-800 text-white border-rose-600'
+                      }`}
+                    >
+                      {withdrawalsEnabled ? 'Active' : 'Paused'}
+                    </button>
+                  </div>
+
+                  {/* Top Notice Marquee */}
+                  <div className={`p-2.5 rounded-2xl border flex flex-col justify-between text-left transition-all ${
+                    homeNoticeActive ? 'bg-amber-950/60 border-amber-500/40 text-amber-200' : 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  }`}>
+                    <span className="text-[10px] font-bold block mb-1">Notice Ribbon</span>
+                    <button
+                      onClick={() => {
+                        const next = !homeNoticeActive;
+                        setHomeNoticeActive(next);
+                        handleQuickToggle('homeNoticeActive', next, 'Home Marquee Notice');
+                      }}
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                        homeNoticeActive ? 'bg-amber-500/30 text-amber-300 border-amber-500/50' : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {homeNoticeActive ? 'Visible' : 'Hidden'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Top KPI Cards Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                 <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl relative overflow-hidden group hover:border-rose-500/40 transition-all">
@@ -776,6 +1228,508 @@ export const AdminPortalView: React.FC = () => {
                     </button>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= APP FEATURES CONTROL CENTER ================= */}
+          {activeSection === 'app_controls' && (
+            <div className="space-y-6 animate-fadeIn">
+              {/* Header Banner */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl">
+                <div>
+                  <h2 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
+                    <Sliders className="w-5 h-5 text-amber-400" />
+                    <span>User App Features Master Control</span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    User app ke har ek function (Check-in, Bonus, Ads, Tasks, Referrals, Withdrawals, Maintenance) par 100% control
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handleSaveSettings()}
+                    className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center space-x-2 transition-all hover:scale-105"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Save All Changes</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Grid of All Functions Control Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* 1. Maintenance Mode */}
+                <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-2.5 rounded-2xl ${maintenanceMode ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-800 text-slate-400'}`}>
+                        <Lock className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">App Maintenance Mode</h4>
+                        <p className="text-[11px] text-slate-400">Lock user app while keeping admin portal active</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setMaintenanceMode(!maintenanceMode)}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs border transition-all ${
+                        maintenanceMode
+                          ? 'bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-600/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {maintenanceMode ? 'Active (Locked)' : 'Disabled (Live)'}
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                      Maintenance Notice Message
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={maintenanceMessage}
+                      onChange={(e) => setMaintenanceMessage(e.target.value)}
+                      placeholder="Free Earn is currently undergoing scheduled optimization..."
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+
+                {/* 2. Daily Check-In & Streak */}
+                <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-2.5 rounded-2xl ${dailyCheckInEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400'}`}>
+                        <CheckCircle2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Daily Check-In & 7-Day Streak</h4>
+                        <p className="text-[11px] text-slate-400">7 din ka consecutive check-in streak reward system</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setDailyCheckInEnabled(!dailyCheckInEnabled)}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs border transition-all ${
+                        dailyCheckInEnabled
+                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-600/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {dailyCheckInEnabled ? 'Enabled (ON)' : 'Disabled (OFF)'}
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-300 mb-2">
+                      Streak Day 1 to Day 7 Coin Rewards
+                    </label>
+                    <div className="grid grid-cols-7 gap-1.5">
+                      {checkInRewardsList.map((reward, idx) => (
+                        <div key={idx} className="text-center">
+                          <span className="text-[9px] font-bold text-slate-400 block mb-1">D{idx + 1}</span>
+                          <input
+                            type="number"
+                            value={reward}
+                            onChange={(e) => {
+                              const updated = [...checkInRewardsList];
+                              updated[idx] = Number(e.target.value) || 0;
+                              setCheckInRewardsList(updated);
+                            }}
+                            className="w-full px-1 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-center text-xs font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Lucky Mystery Bonus */}
+                <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-2.5 rounded-2xl ${dailyBonusEnabled ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-800 text-slate-400'}`}>
+                        <Gift className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Lucky Mystery Bonus (Daily Login)</h4>
+                        <p className="text-[11px] text-slate-400">Din me ek bar claim hone wala random/fixed reward</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setDailyBonusEnabled(!dailyBonusEnabled)}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs border transition-all ${
+                        dailyBonusEnabled
+                          ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-600/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {dailyBonusEnabled ? 'Enabled (ON)' : 'Disabled (OFF)'}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Standard Coins</label>
+                      <input
+                        type="number"
+                        value={dailyBonus}
+                        onChange={(e) => setDailyBonus(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-purple-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Min Coins Range</label>
+                      <input
+                        type="number"
+                        value={dailyBonusMinCoins}
+                        onChange={(e) => setDailyBonusMinCoins(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Max Coins Range</label>
+                      <input
+                        type="number"
+                        value={dailyBonusMaxCoins}
+                        onChange={(e) => setDailyBonusMaxCoins(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Rewarded Video Ads */}
+                <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-2.5 rounded-2xl ${videoAdsEnabled ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800 text-slate-400'}`}>
+                        <Smartphone className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Rewarded Video Ads (AdMob)</h4>
+                        <p className="text-[11px] text-slate-400">Video ads dekh kar coins kamane ka system</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setVideoAdsEnabled(!videoAdsEnabled)}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs border transition-all ${
+                        videoAdsEnabled
+                          ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-600/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {videoAdsEnabled ? 'Enabled (ON)' : 'Disabled (OFF)'}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Coins Per Ad</label>
+                      <input
+                        type="number"
+                        value={adReward}
+                        onChange={(e) => setAdReward(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-indigo-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Daily Ad Limit</label>
+                      <input
+                        type="number"
+                        value={dailyAdCap}
+                        onChange={(e) => setDailyAdCap(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Cooldown (Sec)</label>
+                      <input
+                        type="number"
+                        value={adCooldownSeconds}
+                        onChange={(e) => setAdCooldownSeconds(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5. Tasks & Offers Marketplace */}
+                <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-2.5 rounded-2xl ${tasksEnabled ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-400'}`}>
+                        <Layers className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Tasks Marketplace System</h4>
+                        <p className="text-[11px] text-slate-400">User app me partner app tasks aur offers show karna</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setTasksEnabled(!tasksEnabled)}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs border transition-all ${
+                        tasksEnabled
+                          ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-600/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {tasksEnabled ? 'Enabled (ON)' : 'Disabled (OFF)'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
+                    <span className="text-xs text-slate-300">Total Catalog Tasks: <strong className="text-white">{tasks.length}</strong></span>
+                    <button
+                      onClick={() => setActiveSection('tasks')}
+                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center space-x-1"
+                    >
+                      <span>Manage Tasks Catalog</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 6. Referral & Team System */}
+                <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-2.5 rounded-2xl ${referralEnabled ? 'bg-pink-500/20 text-pink-400' : 'bg-slate-800 text-slate-400'}`}>
+                        <Users className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Refer & Earn Program</h4>
+                        <p className="text-[11px] text-slate-400">Referral code sharing aur invitation bonus</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setReferralEnabled(!referralEnabled)}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs border transition-all ${
+                        referralEnabled
+                          ? 'bg-pink-600 text-white border-pink-500 shadow-lg shadow-pink-600/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {referralEnabled ? 'Enabled (ON)' : 'Disabled (OFF)'}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Inviter Reward (Coins)</label>
+                      <input
+                        type="number"
+                        value={refCoins}
+                        onChange={(e) => setRefCoins(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-pink-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Invitee / Join Bonus (Coins)</label>
+                      <input
+                        type="number"
+                        value={joinBonusCoins}
+                        onChange={(e) => setJoinBonusCoins(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-emerald-300"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 7. Withdrawals & Limits */}
+                <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4 md:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-2.5 rounded-2xl ${withdrawalsEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                        <ArrowDownLeft className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Withdrawals & Payout System</h4>
+                        <p className="text-[11px] text-slate-400">Users ko payout request submit karne dena ya temporarily pause karna</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setWithdrawalsEnabled(!withdrawalsEnabled)}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs border transition-all ${
+                        withdrawalsEnabled
+                          ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-600/30'
+                          : 'bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-600/30'
+                      }`}
+                    >
+                      {withdrawalsEnabled ? 'Withdrawals Active (ON)' : 'Withdrawals Paused (OFF)'}
+                    </button>
+                  </div>
+
+                  {!withdrawalsEnabled && (
+                    <div>
+                      <label className="block text-[11px] font-bold text-amber-300 mb-1">
+                        Pause Message Shown To Users
+                      </label>
+                      <input
+                        type="text"
+                        value={withdrawalsDisabledReason}
+                        onChange={(e) => setWithdrawalsDisabledReason(e.target.value)}
+                        placeholder="Withdrawals are temporarily paused for banking reconciliation..."
+                        className="w-full px-3 py-2 bg-slate-950 border border-amber-500/40 rounded-xl text-xs text-white"
+                      />
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Min Withdrawal Coins</label>
+                      <input
+                        type="number"
+                        value={minWdCoins}
+                        onChange={(e) => setMinWdCoins(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-amber-300"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">
+                        ₹{(minWdCoins / (coinRatio || 100)).toFixed(2)} threshold
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Coin to Rupee Ratio</label>
+                      <input
+                        type="number"
+                        value={coinRatio}
+                        onChange={(e) => setCoinRatio(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-white"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">
+                        {coinRatio} Coins = ₹1.00
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Supported Methods</label>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {(['upi', 'bank', 'paytm', 'phonepe'] as const).map((method) => {
+                          const isAllowed = allowedMethods.includes(method);
+                          return (
+                            <button
+                              key={method}
+                              type="button"
+                              onClick={() => {
+                                if (isAllowed) {
+                                  if (allowedMethods.length > 1) {
+                                    setAllowedMethods(allowedMethods.filter((m) => m !== method));
+                                  }
+                                } else {
+                                  setAllowedMethods([...allowedMethods, method]);
+                                }
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border transition-all ${
+                                isAllowed
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  : 'bg-slate-950 text-slate-500 border-slate-800'
+                              }`}
+                            >
+                              {method === 'upi' ? 'UPI' : method === 'bank' ? 'Bank IMPS' : method}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 8. Home Marquee Notice Ribbon */}
+                <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-2.5 rounded-2xl ${homeNoticeActive ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}>
+                        <Megaphone className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Home Marquee Notice Bar</h4>
+                        <p className="text-[11px] text-slate-400">User app ke top par urgent alert ribbon dikhana</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setHomeNoticeActive(!homeNoticeActive)}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs border transition-all ${
+                        homeNoticeActive
+                          ? 'bg-amber-600 text-white border-amber-500 shadow-lg shadow-amber-600/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {homeNoticeActive ? 'Visible (ON)' : 'Hidden (OFF)'}
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-300 mb-1">Notice Ribbon Text</label>
+                    <input
+                      type="text"
+                      value={homeNoticeText}
+                      onChange={(e) => setHomeNoticeText(e.target.value)}
+                      placeholder="⚡ All UPI payouts are processing within 2 hours today! Complete tasks to earn extra bonus."
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {/* 9. Support Channels */}
+                <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-400">
+                        <Smartphone className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Customer Support Contacts</h4>
+                        <p className="text-[11px] text-slate-400">Users ko Help screen par dikhne wale contact details</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">WhatsApp Support Number</label>
+                      <input
+                        type="text"
+                        value={supportWhatsapp}
+                        onChange={(e) => setSupportWhatsapp(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-emerald-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">Support Email Address</label>
+                      <input
+                        type="email"
+                        value={supportEmail}
+                        onChange={(e) => setSupportEmail(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Save Bar */}
+              <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-between shadow-2xl">
+                <span className="text-xs text-slate-400">
+                  Settings ko save karne par user app turant real-time update ho jayega.
+                </span>
+                <button
+                  onClick={() => handleSaveSettings()}
+                  className="px-6 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center space-x-2 transition-all hover:scale-105"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Save All Settings</span>
+                </button>
               </div>
             </div>
           )}

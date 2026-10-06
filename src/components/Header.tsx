@@ -13,9 +13,10 @@ import {
 interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenAuth: () => void;
+  onViewLanding?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenNotifications, onOpenAuth }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenNotifications, onOpenAuth, onViewLanding }) => {
   const {
     user,
     isAdmin,
@@ -61,7 +62,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNotifications, onOpenAuth 
           <div>
             <div className="flex items-center space-x-1.5">
               <span className="font-extrabold text-lg tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-purple-200">
-                FREE EARN
+                SMART EARN
               </span>
               {user && (
                 <span
@@ -85,6 +86,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNotifications, onOpenAuth 
 
         {/* Action Controls */}
         <div className="flex items-center space-x-2">
+          {/* Landing Page Button */}
+          {onViewLanding && (
+            <button
+              onClick={onViewLanding}
+              className="btn-3d flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-purple-950/70 border border-purple-500/40 text-[11px] font-bold text-purple-200 hover:text-white transition-all shadow-sm"
+              title="View Smart Earn Landing Page"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              <span className="hidden sm:inline">Landing</span>
+            </button>
+          )}
+
           {/* Toggle Phone Frame Simulator (Visible on desktop) */}
           <button
             onClick={() => setIsPhoneFrame((prev) => !prev)}

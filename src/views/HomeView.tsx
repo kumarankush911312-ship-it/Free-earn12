@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { PromoBannerCarousel } from '../components/PromoBannerCarousel';
+import { getTodayDateString } from '../services/api';
 import {
   Coins,
   TrendingUp,
@@ -76,16 +77,55 @@ export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
   };
 
   const currentStreak = user?.consecutiveCheckIns || 0;
-  const todayDateStr = new Date().toISOString().split('T')[0];
+  const todayDateStr = getTodayDateString();
+  const utcDateStr = new Date().toISOString().split('T')[0];
+  const localDateStr = new Date().toLocaleDateString('en-CA');
+
   const todayCheckedIn = Boolean(
-    user?.lastCheckInDate && user.lastCheckInDate === todayDateStr
+    (user?.lastCheckInDate &&
+      (user.lastCheckInDate === todayDateStr ||
+        user.lastCheckInDate === utcDateStr ||
+        user.lastCheckInDate === localDateStr ||
+        user.lastCheckInDate.startsWith(todayDateStr) ||
+        user.lastCheckInDate.startsWith(utcDateStr) ||
+        user.lastCheckInDate.startsWith(localDateStr))) ||
+      (user?.uid && localStorage.getItem(`freeearn_checkin_${user.uid}_${todayDateStr}`) === 'claimed') ||
+      (user?.uid && localStorage.getItem(`freeearn_checkin_${user.uid}_${utcDateStr}`) === 'claimed')
   );
+
   const todayBonusClaimed = Boolean(
-    user?.lastDailyBonusDate && user.lastDailyBonusDate === todayDateStr
+    (user?.lastDailyBonusDate &&
+      (user.lastDailyBonusDate === todayDateStr ||
+        user.lastDailyBonusDate === utcDateStr ||
+        user.lastDailyBonusDate === localDateStr ||
+        user.lastDailyBonusDate.startsWith(todayDateStr) ||
+        user.lastDailyBonusDate.startsWith(utcDateStr) ||
+        user.lastDailyBonusDate.startsWith(localDateStr))) ||
+      (user?.uid && localStorage.getItem(`freeearn_bonus_${user.uid}_${todayDateStr}`) === 'claimed') ||
+      (user?.uid && localStorage.getItem(`freeearn_bonus_${user.uid}_${utcDateStr}`) === 'claimed')
   );
 
   return (
     <div className="space-y-4 pb-20 animate-in fade-in duration-200">
+      {/* Home Marquee Notice Ribbon (Admin Controlled) */}
+      {settings.homeNoticeActive && settings.homeNoticeText && (
+        <div className="overflow-hidden rounded-2xl bg-gradient-to-r from-amber-950/90 via-orange-950/80 to-slate-900 border border-amber-500/50 p-3 shadow-lg shadow-amber-950/40 animate-pulse">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+              <Megaphone className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center space-x-1.5">
+                <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-300">
+                  Notice
+                </span>
+                <span className="text-xs font-bold text-amber-100">{settings.homeNoticeText}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Announcements Banner */}
       {announcements.filter((a) => a.active).length > 0 && (
         <div className="overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-950/80 via-purple-950/60 to-slate-900 border border-indigo-800/40 p-3 shadow-md">
@@ -226,14 +266,22 @@ export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
 
           <button
             onClick={handleClaimCheckIn}
-            disabled={todayCheckedIn || checkInLoading}
+            disabled={todayCheckedIn || checkInLoading || settings.dailyCheckInEnabled === false}
             className={`btn-3d text-xs font-black px-4 py-2 rounded-xl transition-all ${
-              todayCheckedIn
+              settings.dailyCheckInEnabled === false
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                : todayCheckedIn
                 ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                 : 'btn-3d-amber text-slate-950 font-black'
             }`}
           >
-            {todayCheckedIn ? 'Claimed Today' : checkInLoading ? 'Claiming...' : 'Claim Today'}
+            {settings.dailyCheckInEnabled === false
+              ? 'Paused'
+              : todayCheckedIn
+              ? 'Claimed Today'
+              : checkInLoading
+              ? 'Claiming...'
+              : 'Claim Today'}
           </button>
         </div>
 
@@ -318,16 +366,20 @@ export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
         {/* Lucky Mystery Bonus 3D Button */}
         <button
           onClick={handleClaimBonus}
-          disabled={todayBonusClaimed || bonusLoading}
+          disabled={todayBonusClaimed || bonusLoading || settings.dailyBonusEnabled === false}
           className={`btn-3d card-3d p-3.5 rounded-2xl text-left transition-all group flex flex-col justify-between ${
-            todayBonusClaimed
+            settings.dailyBonusEnabled === false
+              ? 'bg-slate-900/70 border-t border-slate-700/30 border-b-4 border-b-slate-950 opacity-60 cursor-not-allowed'
+              : todayBonusClaimed
               ? 'bg-slate-900/70 border-t border-slate-700/30 border-b-4 border-b-slate-950 opacity-60 cursor-not-allowed'
               : 'bg-gradient-to-b from-purple-950/80 to-slate-950 border-t border-purple-500/30 border-b-4 border-b-purple-950 hover:border-purple-400/60'
           }`}
         >
           <div
             className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 shadow-md transition-transform ${
-              todayBonusClaimed
+              settings.dailyBonusEnabled === false
+                ? 'bg-slate-800 text-slate-500 border border-slate-700'
+                : todayBonusClaimed
                 ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/40'
                 : 'bg-gradient-to-tr from-purple-600 to-pink-600 text-white shadow-purple-600/30 group-hover:scale-110'
             }`}
@@ -342,10 +394,18 @@ export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
             <h4 className="text-xs font-black text-white">Daily Bonus</h4>
             <p
               className={`text-[10px] font-bold mt-0.5 ${
-                todayBonusClaimed ? 'text-emerald-400' : 'text-purple-300'
+                settings.dailyBonusEnabled === false
+                  ? 'text-slate-400'
+                  : todayBonusClaimed
+                  ? 'text-emerald-400'
+                  : 'text-purple-300'
               }`}
             >
-              {todayBonusClaimed ? 'Claimed Today' : `+${settings.dailyBonusCoins} Coins`}
+              {settings.dailyBonusEnabled === false
+                ? 'Paused'
+                : todayBonusClaimed
+                ? 'Claimed Today'
+                : `+${settings.dailyBonusCoins} Coins`}
             </p>
           </div>
         </button>

@@ -25,6 +25,7 @@ interface ProfileViewProps {
   onOpenFaq: () => void;
   onOpenTerms: () => void;
   onOpenContact: () => void;
+  onOpenLanding?: () => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -32,6 +33,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenFaq,
   onOpenTerms,
   onOpenContact,
+  onOpenLanding,
 }) => {
   const { user, logout, updateUserContact, isAdmin, setActiveTab } = useApp();
 
@@ -235,6 +237,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <ChevronRight className="w-4 h-4 text-slate-400" />
         </button>
 
+        {onOpenLanding && (
+          <button
+            onClick={onOpenLanding}
+            className="w-full p-3.5 flex items-center justify-between text-left hover:bg-purple-950/30 rounded-2xl transition-colors group"
+          >
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white group-hover:text-purple-300 transition-colors">
+                  View Smart Earn Landing Page
+                </h4>
+                <p className="text-[10px] text-slate-400">Explore features, how it works & public information</p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400" />
+          </button>
+        )}
+
         <button
           onClick={logout}
           className="w-full p-3.5 flex items-center justify-between text-left hover:bg-rose-950/20 rounded-2xl transition-colors group"
@@ -255,7 +277,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       {/* App Branding Footer */}
       <div className="text-center pt-3 pb-2 text-slate-400 space-y-1">
         <p className="text-xs font-extrabold tracking-wider text-slate-400 uppercase">
-          Free Earn • v2.4.0
+          Smart Earn • v3.2.0
         </p>
         <p className="text-[10px]">“Earn Smart. Earn Daily.”</p>
       </div>

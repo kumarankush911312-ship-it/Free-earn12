@@ -154,9 +154,9 @@
     "email": "kumarankush36090@gmail.com",
     "password": "A829860k",
     "referralCode": "FE9JY31",
-    "coins": 1405,
-    "todayEarnings": 255,
-    "totalEarnings": 1405,
+    "coins": 1618,
+    "todayEarnings": 285,
+    "totalEarnings": 1618,
     "totalWithdrawn": 0,
     "pendingWithdrawalCoins": 0,
     "level": "Silver",
@@ -165,8 +165,27 @@
     "adsWatchedToday": 0,
     "createdAt": "2026-10-04T07:10:00.192Z",
     "isAdmin": true,
-    "updatedAt": "2026-10-04T07:36:32.459Z",
-    "lastCheckInDate": "2026-10-04",
-    "lastDailyBonusDate": "2026-10-04"
+    "updatedAt": "2026-10-05T19:27:20.374Z",
+    "lastCheckInDate": "2026-10-06",
+    "lastDailyBonusDate": "2026-10-06"
+  },
+  {
+    "uid": "user_phone_9998887776",
+    "name": "Test User",
+    "mobile": "+91 9998887776",
+    "email": "test@example.com",
+    "password": "password123",
+    "referralCode": "FEA3LYJ",
+    "coins": 0,
+    "todayEarnings": 100,
+    "totalEarnings": 100,
+    "totalWithdrawn": 0,
+    "pendingWithdrawalCoins": 500,
+    "level": "Bronze",
+    "isBlocked": false,
+    "consecutiveCheckIns": 0,
+    "adsWatchedToday": 0,
+    "createdAt": "2026-10-05T19:32:31.337Z",
+    "isAdmin": false
   }
 ]

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-04T07:24:36.918Z",
+  "updatedAt": "2026-10-05T19:51:59.254Z",
   "devices": [
     {
       "deviceHash": "dev_670c5c2aa62919175d69734a",
@@ -54,6 +54,19 @@
       "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36",
       "hardwareEntropy": "360x785x24|2|8|Linux armv81|5|Asia/Calcutta|ANGLE (ARM, Mali-G57 MC2, OpenGL ES 3.2)",
       "isUnlockedByAdmin": false
+    },
+    {
+      "deviceHash": "dev_fa50eb6251cc9aa8717275a5",
+      "cookieToken": "dtk_da5c0b66d4ee329fc808e99d8154c72e",
+      "hardwareHash": "fa50eb6251cc9aa8717275a5",
+      "userId": "user_phone_9998887776",
+      "userMobile": "9998887776",
+      "userEmail": "test@example.com",
+      "registeredAt": "2026-10-05T19:32:31.337Z",
+      "lastSeenAt": "2026-10-05T19:51:59.254Z",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "curl/7.88.1",
+      "isUnlockedByAdmin": false
     }
   ],
   "phones": [
@@ -83,6 +96,13 @@
       "userId": "user_phone_9113124207",
       "deviceHash": "dev_c2a86400caf3b714dbb63e0b",
       "registeredAt": "2026-10-04T07:10:00.192Z",
+      "isUnlockedByAdmin": false
+    },
+    {
+      "mobile": "9998887776",
+      "userId": "user_phone_9998887776",
+      "deviceHash": "dev_fa50eb6251cc9aa8717275a5",
+      "registeredAt": "2026-10-05T19:32:31.337Z",
       "isUnlockedByAdmin": false
     }
   ],

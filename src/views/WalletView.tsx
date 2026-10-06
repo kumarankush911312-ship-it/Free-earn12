@@ -117,19 +117,35 @@ export const WalletView: React.FC<WalletViewProps> = ({ onOpenAuth }) => {
         </p>
 
         {/* 3D Action Button */}
+        {settings.withdrawalsEnabled === false && (
+          <div className="mt-4 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-semibold text-center">
+            ⚠️ {settings.withdrawalsDisabledReason || 'Withdrawals are temporarily paused for system maintenance.'}
+          </div>
+        )}
+
         <div className="mt-5">
           <button
             onClick={() => {
+              if (settings.withdrawalsEnabled === false) return;
               if (!user) {
                 onOpenAuth();
               } else {
                 setShowWithdrawModal(true);
               }
             }}
-            className="btn-3d btn-3d-emerald w-full py-3.5 px-4 rounded-2xl text-white font-black text-xs shadow-xl flex items-center justify-center space-x-2"
+            disabled={settings.withdrawalsEnabled === false}
+            className={`btn-3d w-full py-3.5 px-4 rounded-2xl font-black text-xs shadow-xl flex items-center justify-center space-x-2 ${
+              settings.withdrawalsEnabled === false
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                : 'btn-3d-emerald text-white'
+            }`}
           >
             <ArrowUpRight className="w-4 h-4 stroke-[3]" />
-            <span>Request Instant Withdrawal (UPI / Bank)</span>
+            <span>
+              {settings.withdrawalsEnabled === false
+                ? 'Withdrawals Paused by Administrator'
+                : 'Request Instant Withdrawal (UPI / Bank)'}
+            </span>
           </button>
         </div>
 

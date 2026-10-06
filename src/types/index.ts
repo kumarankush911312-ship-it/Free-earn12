@@ -138,12 +138,29 @@ export interface AppSettings {
   dailyAdLimit: number;
   adRewardCoins: number;
   dailyBonusCoins: number;
+  dailyBonusMinCoins?: number;
+  dailyBonusMaxCoins?: number;
   checkInRewards: number[];
   supportEmail: string;
   supportWhatsapp: string;
   admobAppId?: string;
   admobRewardedUnitId?: string;
   admobBannerUnitId?: string;
+
+  // Master Feature Toggles (Complete admin control of every user app feature)
+  maintenanceMode: boolean;
+  maintenanceMessage?: string;
+  dailyCheckInEnabled: boolean;
+  dailyBonusEnabled: boolean;
+  videoAdsEnabled: boolean;
+  adCooldownSeconds: number;
+  tasksEnabled: boolean;
+  referralEnabled: boolean;
+  withdrawalsEnabled: boolean;
+  withdrawalsDisabledReason?: string;
+  allowedWithdrawalMethods: ('upi' | 'bank' | 'paytm' | 'phonepe')[];
+  homeNoticeActive: boolean;
+  homeNoticeText?: string;
 }
 
 export interface AppNotification {

@@ -5,6 +5,7 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  deleteDoc,
   query,
   where,
 } from 'firebase/firestore';
@@ -36,10 +37,11 @@ import {
 } from './seedData';
 import { getDeviceFingerprint, getDeviceHardwareEntropy } from './security';
 
-// Helper to get today's date formatted as YYYY-MM-DD
+// Helper to get today's date formatted as YYYY-MM-DD in Indian Standard Time (IST = UTC+5:30)
 export function getTodayDateString(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const istDate = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  return istDate.toISOString().split('T')[0];
 }
 
 export function generateId(prefix: string): string {
@@ -96,27 +98,28 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | nul
 
 // ---------------- APP SETTINGS ----------------
 export async function getAppSettings(): Promise<AppSettings> {
-  let settings = getLocalItem<AppSettings>('freeearn_demo_settings', DEFAULT_SETTINGS);
-
-  // 1. Fetch from Backend REST API
-  apiFetch<{ success: boolean; settings: AppSettings }>('/api/settings').then((data) => {
+  // 1. Fetch latest live settings from Backend REST API
+  try {
+    const data = await apiFetch<{ success: boolean; settings: AppSettings }>('/api/settings');
     if (data && data.success && data.settings) {
       setLocalItem('freeearn_demo_settings', data.settings);
+      return data.settings;
     }
-  });
+  } catch {}
 
-  // 2. Fetch from Firestore
+  // 2. Fetch from Firestore if available
   if (db) {
-    getDoc(doc(db, 'settings', 'app_settings'))
-      .then((snap) => {
-        if (snap.exists()) {
-          setLocalItem('freeearn_demo_settings', { ...DEFAULT_SETTINGS, ...(snap.data() as AppSettings) });
-        }
-      })
-      .catch(() => {});
+    try {
+      const snap = await getDoc(doc(db, 'settings', 'app_settings'));
+      if (snap.exists()) {
+        const firestoreSettings = { ...DEFAULT_SETTINGS, ...(snap.data() as AppSettings) };
+        setLocalItem('freeearn_demo_settings', firestoreSettings);
+        return firestoreSettings;
+      }
+    } catch {}
   }
 
-  return settings;
+  return getLocalItem<AppSettings>('freeearn_demo_settings', DEFAULT_SETTINGS);
 }
 
 export async function updateAppSettings(settings: Partial<AppSettings>): Promise<void> {
@@ -125,10 +128,12 @@ export async function updateAppSettings(settings: Partial<AppSettings>): Promise
   setLocalItem('freeearn_demo_settings', updated);
 
   // 1. Sync to Backend REST API
-  apiFetch('/api/settings', {
-    method: 'PUT',
-    body: JSON.stringify(settings),
-  });
+  try {
+    await apiFetch('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  } catch {}
 
   // 2. Sync to Firebase
   const firestore = db;
@@ -183,22 +188,32 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
     return sessionUser;
   }
 
-  // 2. Check demo seed list
-  const seedUser = DEMO_USERS.find((u) => u.uid === cleanId || (u.mobile && cleanId.includes(u.mobile.replace(/[^0-9]/g, '').slice(-10))));
-  if (seedUser) {
-    setLocalItem(`freeearn_user_${cleanId}`, seedUser);
-    return seedUser;
+  // 2. Check demo and registered all users list
+  const allUsersList = getLocalItem<UserProfile[]>('freeearn_demo_all_users', DEMO_USERS);
+  const cleanDigits = cleanId.replace(/[^0-9]/g, '').slice(-10);
+  const matchedUser = allUsersList.find(
+    (u) =>
+      u.uid === cleanId ||
+      (cleanDigits.length === 10 && (u.mobile?.replace(/[^0-9]/g, '').slice(-10) === cleanDigits || u.uid === `user_phone_${cleanDigits}`)) ||
+      (cleanId.includes('@') && u.email?.toLowerCase() === cleanId.toLowerCase())
+  );
+  if (matchedUser) {
+    setLocalItem(`freeearn_user_${cleanId}`, matchedUser);
+    setLocalItem(`freeearn_user_${matchedUser.uid}`, matchedUser);
+    return matchedUser;
   }
 
-  // 3. Background non-blocking remote Firestore lookup
+  // 3. Remote Firestore lookup
   if (db) {
-    getDoc(doc(db, 'users', uid))
-      .then((snap) => {
-        if (snap.exists()) {
-          setLocalItem(`freeearn_user_${uid}`, snap.data() as UserProfile);
-        }
-      })
-      .catch(() => {});
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      if (snap.exists()) {
+        const u = snap.data() as UserProfile;
+        setLocalItem(`freeearn_user_${uid}`, u);
+        setLocalItem(`freeearn_user_${cleanId}`, u);
+        return u;
+      }
+    } catch {}
   }
 
   return null;
@@ -274,6 +289,25 @@ export async function updateUserProfile(uid: string, data: Partial<UserProfile>)
   }
 }
 
+export async function deleteUser(uid: string): Promise<void> {
+  const cleanId = (uid || '').trim();
+  if (!cleanId) return;
+
+  localStorage.removeItem(`freeearn_user_${cleanId}`);
+  const users = getLocalItem<UserProfile[]>('freeearn_demo_all_users', DEMO_USERS);
+  setLocalItem('freeearn_demo_all_users', users.filter((u) => u.uid !== cleanId));
+
+  const sessionUser = getLocalItem<UserProfile | null>('freeearn_local_user', null);
+  if (sessionUser && sessionUser.uid === cleanId) {
+    localStorage.removeItem('freeearn_local_user');
+  }
+
+  apiFetch(`/api/users/${cleanId}`, { method: 'DELETE' });
+  if (db) {
+    deleteDoc(doc(db, 'users', cleanId)).catch(() => {});
+  }
+}
+
 export async function getAllUsers(): Promise<UserProfile[]> {
   const localUsers = getLocalItem<UserProfile[]>('freeearn_demo_all_users', DEMO_USERS);
 
@@ -291,18 +325,15 @@ export async function getAllUsers(): Promise<UserProfile[]> {
 export async function getTasks(): Promise<Task[]> {
   try {
     const res = await apiFetch<{ success: boolean; tasks: Task[] }>('/api/tasks');
-    if (res && res.success && res.tasks && res.tasks.length > 0) {
+    if (res && res.success && Array.isArray(res.tasks) && res.tasks.length > 0) {
       setLocalItem('freeearn_demo_tasks', res.tasks);
       return res.tasks;
     }
   } catch {}
 
   const localTasks = getLocalItem<Task[]>('freeearn_demo_tasks', []);
-  const validUrls = new Set(INITIAL_TASKS.map((t) => t.externalUrl));
-  const filtered = localTasks.filter((t) => validUrls.has(t.externalUrl));
-  if (filtered.length > 0) {
-    setLocalItem('freeearn_demo_tasks', filtered);
-    return filtered;
+  if (localTasks.length > 0) {
+    return localTasks;
   }
 
   // Seed initial tasks
@@ -338,10 +369,20 @@ export async function createTask(taskData: Omit<Task, 'id' | 'createdAt'>): Prom
   setLocalItem('freeearn_demo_tasks', tasks);
 
   // 1. Sync to Backend REST API
-  apiFetch('/api/tasks', {
-    method: 'POST',
-    body: JSON.stringify(taskData),
-  });
+  try {
+    const res = await apiFetch<{ success: boolean; task: Task }>('/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify(taskData),
+    });
+    if (res && res.success && res.task) {
+      const idx = tasks.findIndex((t) => t.id === id);
+      if (idx >= 0) {
+        tasks[idx] = res.task;
+        setLocalItem('freeearn_demo_tasks', tasks);
+      }
+      return res.task;
+    }
+  } catch {}
 
   // 2. Sync to Firebase
   if (db) {
@@ -359,10 +400,12 @@ export async function updateTask(taskId: string, updates: Partial<Task>): Promis
   }
 
   // 1. Sync to Backend REST API
-  apiFetch(`/api/tasks/${taskId}`, {
-    method: 'PUT',
-    body: JSON.stringify(updates),
-  });
+  try {
+    await apiFetch(`/api/tasks/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  } catch {}
 
   // 2. Sync to Firebase
   if (db) {
@@ -376,7 +419,13 @@ export async function deleteTask(taskId: string): Promise<void> {
   setLocalItem('freeearn_demo_tasks', filtered);
 
   // 1. Sync to Backend
-  apiFetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+  try {
+    await apiFetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+  } catch {}
+
+  if (db) {
+    deleteDoc(doc(db, 'tasks', taskId)).catch(() => {});
+  }
 }
 
 // ---------------- TASK SUBMISSIONS ----------------
@@ -544,6 +593,8 @@ export async function createWithdrawal(
   const withdrawal: Withdrawal = {
     ...wd,
     id,
+    userName: userProfile.name,
+    userMobile: userProfile.mobile,
     requestedAt: new Date().toISOString(),
   };
 
@@ -567,11 +618,29 @@ export async function createWithdrawal(
     referenceId: id,
   });
 
-  // 1. Sync to Backend REST API
-  apiFetch('/api/withdrawals', {
-    method: 'POST',
-    body: JSON.stringify(withdrawal),
-  });
+  // 1. Sync to Backend REST API (Persist in server-authoritative store)
+  try {
+    const res = await apiFetch<{ success: boolean; withdrawal?: Withdrawal }>('/api/withdrawals', {
+      method: 'POST',
+      body: JSON.stringify(withdrawal),
+    });
+    if (res && res.success && res.withdrawal) {
+      const idx = wds.findIndex((w) => w.id === id);
+      if (idx >= 0) {
+        wds[idx] = res.withdrawal;
+      } else {
+        wds.unshift(res.withdrawal);
+      }
+      setLocalItem('freeearn_demo_withdrawals', wds);
+
+      if (db) {
+        setDoc(doc(db, 'withdrawals', res.withdrawal.id), res.withdrawal).catch(() => {});
+      }
+      return res.withdrawal;
+    }
+  } catch (err) {
+    console.warn('Backend withdrawal sync notice:', err);
+  }
 
   // 2. Sync to Firebase
   if (db) {
@@ -581,22 +650,69 @@ export async function createWithdrawal(
 }
 
 export async function getUserWithdrawals(userId: string): Promise<Withdrawal[]> {
-  const wds = getLocalItem<Withdrawal[]>('freeearn_demo_withdrawals', DEMO_WITHDRAWALS);
-
-  // Background fetch
-  apiFetch<{ success: boolean; withdrawals: Withdrawal[] }>(`/api/withdrawals?userId=${userId}`).then((res) => {
-    if (res && res.success && res.withdrawals) {
-      setLocalItem('freeearn_demo_withdrawals', res.withdrawals);
+  try {
+    const res = await apiFetch<{ success: boolean; withdrawals: Withdrawal[] }>(`/api/withdrawals?userId=${encodeURIComponent(userId)}`);
+    if (res && res.success && Array.isArray(res.withdrawals)) {
+      setLocalItem(`freeearn_user_withdrawals_${userId}`, res.withdrawals);
+      return res.withdrawals.sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
     }
-  });
+  } catch {}
 
+  const userSaved = getLocalItem<Withdrawal[]>(`freeearn_user_withdrawals_${userId}`, []);
+  if (userSaved.length > 0) {
+    return userSaved.sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
+  }
+
+  const wds = getLocalItem<Withdrawal[]>('freeearn_demo_withdrawals', DEMO_WITHDRAWALS);
   return wds
     .filter((w) => w.userId === userId)
     .sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
 }
 
 export async function getAllWithdrawals(): Promise<Withdrawal[]> {
-  return getLocalItem<Withdrawal[]>('freeearn_demo_withdrawals', DEMO_WITHDRAWALS);
+  const mergedMap = new Map<string, Withdrawal>();
+
+  // 1. Fetch from server backend store first (Authoritative source)
+  try {
+    const res = await apiFetch<{ success: boolean; withdrawals: Withdrawal[] }>('/api/withdrawals');
+    if (res && res.success && Array.isArray(res.withdrawals)) {
+      res.withdrawals.forEach((w) => {
+        if (w && w.id) mergedMap.set(w.id, w);
+      });
+    }
+  } catch (err) {
+    console.warn('Error fetching all withdrawals from server:', err);
+  }
+
+  // 2. Load local cache withdrawals
+  const localList = getLocalItem<Withdrawal[]>('freeearn_demo_withdrawals', DEMO_WITHDRAWALS);
+  localList.forEach((w) => {
+    if (w && w.id && !mergedMap.has(w.id)) {
+      mergedMap.set(w.id, w);
+    }
+  });
+
+  // 3. Fetch from Firebase Firestore if available
+  if (db) {
+    try {
+      const snap = await getDocs(collection(db, 'withdrawals'));
+      if (!snap.empty) {
+        snap.forEach((d) => {
+          const item = d.data() as Withdrawal;
+          if (item && item.id) mergedMap.set(item.id, item);
+        });
+      }
+    } catch (e) {
+      console.warn('Firestore withdrawals lookup notice:', e);
+    }
+  }
+
+  const finalWithdrawals = Array.from(mergedMap.values()).sort(
+    (a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
+  );
+
+  setLocalItem('freeearn_demo_withdrawals', finalWithdrawals);
+  return finalWithdrawals;
 }
 
 export async function updateWithdrawalStatus(
@@ -666,6 +782,14 @@ export async function updateWithdrawalStatus(
 
 // ---------------- ANNOUNCEMENTS ----------------
 export async function getAnnouncements(): Promise<Announcement[]> {
+  try {
+    const res = await apiFetch<{ success: boolean; announcements: Announcement[] }>('/api/announcements');
+    if (res && res.success && Array.isArray(res.announcements) && res.announcements.length > 0) {
+      setLocalItem('freeearn_demo_announcements', res.announcements);
+      return res.announcements;
+    }
+  } catch {}
+
   const localAnn = getLocalItem<Announcement[]>('freeearn_demo_announcements', []);
   if (localAnn.length > 0) return localAnn;
 
@@ -675,14 +799,6 @@ export async function getAnnouncements(): Promise<Announcement[]> {
     createdAt: new Date().toISOString(),
   }));
   setLocalItem('freeearn_demo_announcements', seeded);
-
-  // Background fetch
-  apiFetch<{ success: boolean; announcements: Announcement[] }>('/api/announcements').then((res) => {
-    if (res && res.success && res.announcements) {
-      setLocalItem('freeearn_demo_announcements', res.announcements);
-    }
-  });
-
   return seeded;
 }
 
@@ -699,10 +815,20 @@ export async function createAnnouncement(ann: Omit<Announcement, 'id' | 'created
   setLocalItem('freeearn_demo_announcements', list);
 
   // 1. Sync to Backend REST API
-  apiFetch('/api/announcements', {
-    method: 'POST',
-    body: JSON.stringify(annData),
-  });
+  try {
+    const res = await apiFetch<{ success: boolean; announcement: Announcement }>('/api/announcements', {
+      method: 'POST',
+      body: JSON.stringify(annData),
+    });
+    if (res && res.success && res.announcement) {
+      const idx = list.findIndex((a) => a.id === id);
+      if (idx >= 0) {
+        list[idx] = res.announcement;
+        setLocalItem('freeearn_demo_announcements', list);
+      }
+      return res.announcement;
+    }
+  } catch {}
 
   // 2. Sync to Firebase
   if (db) {
@@ -717,7 +843,9 @@ export async function deleteAnnouncement(annId: string): Promise<void> {
   setLocalItem('freeearn_demo_announcements', filtered);
 
   // 1. Sync to Backend REST API
-  apiFetch(`/api/announcements/${annId}`, { method: 'DELETE' });
+  try {
+    await apiFetch(`/api/announcements/${annId}`, { method: 'DELETE' });
+  } catch {}
 }
 
 // Exported functions for AppContext compatibility
@@ -954,7 +1082,7 @@ export async function sendMobileOtp(
 export async function verifyMobileOtp(
   mobile: string,
   otp: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
   const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
   const cleanOtp = (otp || '').trim();
 
@@ -963,13 +1091,13 @@ export async function verifyMobileOtp(
   }
 
   try {
-    const res = await apiFetch<{ success: boolean; message?: string; error?: string }>('/api/auth/verify-otp', {
+    const res = await apiFetch<{ success: boolean; message?: string; error?: string; user?: UserProfile }>('/api/auth/verify-otp', {
       method: 'POST',
       body: JSON.stringify({ mobile: cleanMobile, otp: cleanOtp }),
     });
 
     if (res && res.success) {
-      return { success: true };
+      return { success: true, user: res.user };
     }
     return { success: false, error: res?.error || 'Galat OTP! Kripya sahi 6-digit code dalein.' };
   } catch {
@@ -1012,12 +1140,13 @@ export async function backendAuthLogin(params: {
 
 export async function passwordLogin(
   identifier: string,
-  pass: string
+  pass: string,
+  fallbackUser?: UserProfile | null
 ): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
   try {
     const res = await apiFetch<{ success: boolean; user?: UserProfile; error?: string }>('/api/auth/password-login', {
       method: 'POST',
-      body: JSON.stringify({ identifier, password: pass }),
+      body: JSON.stringify({ identifier, password: pass, cachedUser: fallbackUser || undefined }),
     });
     if (res && res.success && res.user) {
       return { success: true, user: res.user };

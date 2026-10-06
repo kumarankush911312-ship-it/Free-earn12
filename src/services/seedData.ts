@@ -9,12 +9,29 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dailyAdLimit: 10,
   adRewardCoins: 25,
   dailyBonusCoins: 15,
+  dailyBonusMinCoins: 10,
+  dailyBonusMaxCoins: 50,
   checkInRewards: [10, 15, 20, 25, 35, 50, 100],
   supportEmail: 'support@freeearn.app',
   supportWhatsapp: '+91 9113124207',
   admobAppId: 'ca-app-pub-7524191132114722~4422067441',
   admobRewardedUnitId: 'ca-app-pub-7524191132114722/4622212147',
   admobBannerUnitId: 'ca-app-pub-7524191132114722/4622212147',
+
+  // Master Feature Controls
+  maintenanceMode: false,
+  maintenanceMessage: 'Free Earn app is undergoing scheduled system optimization. All user coin balances and pending withdrawals are 100% safe. We will be back online shortly!',
+  dailyCheckInEnabled: true,
+  dailyBonusEnabled: true,
+  videoAdsEnabled: true,
+  adCooldownSeconds: 30,
+  tasksEnabled: true,
+  referralEnabled: true,
+  withdrawalsEnabled: true,
+  withdrawalsDisabledReason: 'Withdrawals are momentarily paused for banking reconciliation. Please check back in a few hours.',
+  allowedWithdrawalMethods: ['upi', 'bank', 'paytm', 'phonepe'],
+  homeNoticeActive: false,
+  homeNoticeText: '⚡ All UPI payouts are processing within 2 hours today! Complete tasks to earn extra bonus coins.',
 };
 
 export const INITIAL_TASKS: Omit<Task, 'id' | 'createdAt'>[] = [

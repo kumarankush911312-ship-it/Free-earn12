@@ -29,7 +29,9 @@ import {
   reviewSubmission,
   processWithdrawal,
   createTask,
+  updateTask,
   deleteTask,
+  deleteUser,
   updateAppSettings,
   createAnnouncement,
   deleteAnnouncement,
@@ -40,6 +42,7 @@ import {
   generateId,
   backendAuthLogin,
   passwordLogin,
+  verifyMobileOtp,
   getLocalItem,
   setLocalItem,
 } from '../services/api';
@@ -80,6 +83,7 @@ interface AppContextType {
   loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   loginWithEmail: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   loginWithPassword: (identifier: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithOtp: (mobile: string, otp: string) => Promise<{ success: boolean; error?: string }>;
   registerWithEmail: (name: string, email: string, pass: string, mobile?: string, referralCode?: string) => Promise<{ success: boolean; error?: string }>;
   loginWithMobile: (name: string, mobile: string, referralCode?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
@@ -98,14 +102,19 @@ interface AppContextType {
   allUsers: UserProfile[];
   allSubmissions: TaskSubmission[];
   allWithdrawals: Withdrawal[];
+  loadAdminData: () => Promise<void>;
   adminApproveTask: (submission: TaskSubmission, notes: string) => Promise<void>;
   adminRejectTask: (submission: TaskSubmission, notes: string) => Promise<void>;
   adminProcessWithdrawalAction: (withdrawal: Withdrawal, status: 'approved' | 'paid' | 'rejected', notes: string) => Promise<void>;
   adminCreateNewTask: (taskData: Omit<Task, 'id' | 'createdAt'>) => Promise<void>;
+  adminUpdateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
   adminDeleteTask: (taskId: string) => Promise<void>;
   adminUpdateAppSettings: (newSettings: Partial<AppSettings>) => Promise<void>;
   adminAdjustBalance: (userId: string, amountCoins: number, reason: string) => Promise<void>;
   adminToggleUserBlock: (userId: string, isBlocked: boolean) => Promise<void>;
+  adminResetDailyBonusForUser: (userId: string) => Promise<void>;
+  adminResetStreakForUser: (userId: string, consecutiveCheckIns?: number) => Promise<void>;
+  adminDeleteUser: (userId: string) => Promise<void>;
   adminPostAnnouncement: (title: string, message: string, badge: string, priority: 'high' | 'normal' | 'low') => Promise<void>;
   adminDeleteAnnouncement: (annId: string) => Promise<void>;
   refreshAllData: () => Promise<void>;
@@ -129,7 +138,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   });
 
   const [authLoading, setAuthLoading] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'earn' | 'wallet' | 'team' | 'profile' | 'admin'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'earn' | 'wallet' | 'team' | 'profile' | 'admin'>(() => {
+    try {
+      const hash = window.location.hash.toLowerCase();
+      const path = window.location.pathname.toLowerCase();
+      const search = window.location.search.toLowerCase();
+      if (hash.includes('admin') || path.includes('admin') || search.includes('admin')) {
+        return 'admin';
+      }
+    } catch {}
+    return 'home';
+  });
   const [isPhoneFrame, setIsPhoneFrame] = useState<boolean>(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -235,21 +254,40 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
-  const refreshAllData = async () => {
-    await loadAppData();
-    if (user?.uid) {
-      const profile = await getUserProfile(user.uid);
-      if (profile) setUser(profile);
-      await loadUserData(user.uid);
-      if (isAdmin) {
-        await loadAdminData();
+  const refreshAllData = useCallback(async () => {
+    try {
+      await Promise.all([loadAppData(), loadAdminData()]);
+      if (user?.uid) {
+        const profile = await getUserProfile(user.uid);
+        if (profile) {
+          setUser((prev) => {
+            if (!prev) return profile;
+            return {
+              ...prev,
+              ...profile,
+              lastCheckInDate: prev.lastCheckInDate || profile.lastCheckInDate,
+              lastDailyBonusDate: prev.lastDailyBonusDate || profile.lastDailyBonusDate,
+              consecutiveCheckIns: Math.max(prev.consecutiveCheckIns || 0, profile.consecutiveCheckIns || 0),
+            };
+          });
+        }
+        await loadUserData(user.uid);
       }
+    } catch (e) {
+      console.warn('Error during refreshAllData:', e);
     }
-  };
+  }, [loadAppData, loadAdminData, user?.uid, loadUserData]);
 
-  // Auth state listener
+  // Auth state listener & Real-time App Data Synchronization
   useEffect(() => {
     loadAppData();
+    loadAdminData();
+
+    // Auto-sync tasks, settings, withdrawals & announcements every 5 seconds so Admin changes immediately reflect in User App
+    const syncTimer = setInterval(() => {
+      loadAppData();
+      loadAdminData();
+    }, 5000);
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       try {
@@ -267,9 +305,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const safeCoins = Math.max(sessionUser.coins || 0, updatedProfile?.coins || 0);
           const safeTotal = Math.max(sessionUser.totalEarnings || 0, updatedProfile?.totalEarnings || 0);
           const activeProfile: UserProfile = {
-            ...(updatedProfile || sessionUser),
+            ...sessionUser,
+            ...(updatedProfile || {}),
             coins: safeCoins,
             totalEarnings: safeTotal,
+            lastCheckInDate: sessionUser.lastCheckInDate || updatedProfile?.lastCheckInDate,
+            lastDailyBonusDate: sessionUser.lastDailyBonusDate || updatedProfile?.lastDailyBonusDate,
+            consecutiveCheckIns: Math.max(sessionUser.consecutiveCheckIns || 0, updatedProfile?.consecutiveCheckIns || 0),
           };
           setUser(activeProfile);
           localStorage.setItem('freeearn_local_user', JSON.stringify(activeProfile));
@@ -297,44 +339,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               ) || null;
           }
 
-          if (!profile) {
-            // Create initial user profile only if user has never existed before
-            const newReferralCode = generateReferralCode();
-            profile = {
-              uid: firebaseUser.uid,
-              name: firebaseUser.displayName || 'Free Earn User',
-              mobile: firebaseUser.phoneNumber || '',
-              email: firebaseUser.email || '',
-              referralCode: newReferralCode,
-              coins: 100, // Welcome signup bonus
-              todayEarnings: 100,
-              totalEarnings: 100,
-              totalWithdrawn: 0,
-              pendingWithdrawalCoins: 0,
-              level: 'Bronze',
-              isBlocked: false,
-              consecutiveCheckIns: 0,
-              adsWatchedToday: 0,
-              createdAt: new Date().toISOString(),
-              isAdmin: firebaseUser.email ? ADMIN_EMAILS.includes(firebaseUser.email.toLowerCase()) : false,
-            };
-            await createUserProfile(profile);
-            await createTransaction({
-              userId: firebaseUser.uid,
-              type: 'daily_bonus',
-              amountCoins: 100,
-              amountCurrency: 1.0,
-              status: 'completed',
-              description: 'Welcome to Free Earn! Sign-up bonus',
-            });
+          if (profile) {
+            setUser(profile);
+            localStorage.setItem('freeearn_local_user', JSON.stringify(profile));
+            setLocalItem(`freeearn_user_${profile.uid}`, profile);
+            loadUserData(profile.uid).catch(() => {});
           }
-          setUser(profile);
-          localStorage.setItem('freeearn_local_user', JSON.stringify(profile));
-          setLocalItem(`freeearn_user_${profile.uid}`, profile);
-          loadUserData(profile.uid).catch(() => {});
         } else {
-          // New visitor: DO NOT log in as anyone! Must show Register/Login screen.
-          setUser(null);
+          // New visitor or logged out: Ensure user is null
+          const storedAfterSignOut = localStorage.getItem('freeearn_local_user');
+          if (!storedAfterSignOut) {
+            setUser(null);
+          }
         }
       } catch (err) {
         console.warn('Auth state notice:', err);
@@ -344,7 +360,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
 
     return () => unsubscribe();
-  }, [loadAppData, loadUserData]);
+  }, [loadAppData, loadUserData, loadAdminData]);
 
   // Load admin data if admin
   useEffect(() => {
@@ -602,6 +618,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // 1.5 Mobile OTP Login (Quick Login for Verified Mobile Numbers)
+  const loginWithOtp = async (mobile: string, otp: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await verifyMobileOtp(mobile, otp);
+      if (res.success && res.user) {
+        setUser(res.user);
+        localStorage.setItem('freeearn_local_user', JSON.stringify(res.user));
+        setLocalItem(`freeearn_user_${res.user.uid}`, res.user);
+        loadUserData(res.user.uid).catch(() => {});
+        triggerConfetti();
+        addNotification('Signed In', `Welcome back ${res.user.name}!`, 'system');
+        return { success: true };
+      }
+      return { success: false, error: res.error || 'Galat OTP! Kripya sahi OTP dalein.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'OTP verification failed' };
+    }
+  };
+
   // 2. Real Mobile & Email Password Sign In (Server Authoritative & Fast)
   const loginWithEmail = async (identifier: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -611,8 +646,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return { success: false, error: 'Kripya Mobile number aur Password dono enter karein.' };
       }
 
-      // Try Backend Password Login first (supports 10-digit mobile number or email)
-      const res = await passwordLogin(cleanId, cleanPass);
+      // Check local cache first to provide fallback if server needs user context
+      const cleanDigits = cleanId.replace(/[^0-9]/g, '').slice(-10);
+      let localFallback: UserProfile | null = null;
+      if (cleanDigits.length === 10) {
+        localFallback = await getUserProfile(`user_phone_${cleanDigits}`);
+        if (!localFallback) {
+          localFallback = await getUserProfile(cleanDigits);
+        }
+      }
+      if (!localFallback && cleanId.includes('@')) {
+        localFallback = await getUserProfile(cleanId);
+      }
+      if (!localFallback) {
+        const allLocal = await getAllUsers();
+        localFallback =
+          allLocal.find(
+            (u) =>
+              (cleanDigits.length === 10 &&
+                (u.mobile?.replace(/[^0-9]/g, '').slice(-10) === cleanDigits ||
+                  u.uid === `user_phone_${cleanDigits}` ||
+                  u.uid.includes(cleanDigits))) ||
+              (cleanId.includes('@') && u.email?.toLowerCase() === cleanId.toLowerCase())
+          ) || null;
+      }
+
+      // Try Backend Password Login (with fallback user if available)
+      const res = await passwordLogin(cleanId, cleanPass, localFallback);
       if (res.success && res.user) {
         // Read any previously earned coins cached for this UID or phone so coins never reset
         const existingLocal = getLocalItem<UserProfile | null>(`freeearn_user_${res.user.uid}`, null);
@@ -621,15 +681,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const safeCoins = Math.max(
           res.user.coins || 0,
           existingLocal?.coins || 0,
-          (storedLocal && (storedLocal.uid === res.user.uid || storedLocal.mobile?.slice(-10) === res.user.mobile?.slice(-10)))
-            ? (storedLocal.coins || 0)
+          storedLocal &&
+            (storedLocal.uid === res.user.uid ||
+              storedLocal.mobile?.slice(-10) === res.user.mobile?.slice(-10))
+            ? storedLocal.coins || 0
             : 0
         );
         const safeTotal = Math.max(
           res.user.totalEarnings || 0,
           existingLocal?.totalEarnings || 0,
-          (storedLocal && (storedLocal.uid === res.user.uid || storedLocal.mobile?.slice(-10) === res.user.mobile?.slice(-10)))
-            ? (storedLocal.totalEarnings || 0)
+          storedLocal &&
+            (storedLocal.uid === res.user.uid ||
+              storedLocal.mobile?.slice(-10) === res.user.mobile?.slice(-10))
+            ? storedLocal.totalEarnings || 0
             : 0
         );
 
@@ -652,9 +716,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return { success: true };
       }
 
-      // If backend returned a clear error (e.g., incorrect password, or blocked), report it directly
-      if (res.error && !res.error.toLowerCase().includes('not found') && !res.error.toLowerCase().includes('registered nahi')) {
+      // If backend returned wrong password or account blocked, report directly
+      if (
+        res.error &&
+        (res.error.toLowerCase().includes('galat password') ||
+          res.error.toLowerCase().includes('suspended') ||
+          res.error.toLowerCase().includes('blocked'))
+      ) {
         return { success: false, error: res.error };
+      }
+
+      // Fallback: If local fallback user exists and password matches
+      if (localFallback) {
+        if (localFallback.password && localFallback.password !== cleanPass) {
+          return { success: false, error: 'Galat Password! Kripya sahi password enter karein.' };
+        }
+        // Save password if missing
+        if (!localFallback.password) {
+          localFallback.password = cleanPass;
+        }
+        setUser(localFallback);
+        localStorage.setItem('freeearn_local_user', JSON.stringify(localFallback));
+        setLocalItem(`freeearn_user_${localFallback.uid}`, localFallback);
+        loadUserData(localFallback.uid).catch(() => {});
+        triggerConfetti();
+        addNotification('Signed In', `Welcome back ${localFallback.name}!`, 'system');
+        return { success: true };
       }
 
       // Fallback: If identifier is an email, check Firebase Auth
@@ -749,6 +836,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       if (!pass || pass.length < 6) {
         return { success: false, error: 'Password kam se kam 6 characters ka hona chahiye.' };
+      }
+
+      if (!referralCode || !referralCode.trim()) {
+        return { success: false, error: 'Referral Code अनिवार्य (Mandatory) hai! Kripya kisi friend ka Referral Code enter karein.' };
       }
 
       const tenDigit = cleanMobile.slice(-10);
@@ -924,13 +1015,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addNotification('Profile Updated', 'Your profile details have been saved.', 'system');
   };
 
-  // 1. Daily Check-in (Server-Validated Anti-Cheat)
+  // 1. Daily Check-in (Server-Validated Anti-Cheat, Strictly Once Per Day)
   const claimDailyCheckIn = async (): Promise<{ success: boolean; reward: number; message: string }> => {
     if (!user) return { success: false, reward: 0, message: 'Please login first' };
 
     const todayStr = getTodayDateString();
-    if (user.lastCheckInDate === todayStr) {
-      return { success: false, reward: 0, message: 'You have already claimed today’s check-in bonus!' };
+    const utcDateStr = new Date().toISOString().split('T')[0];
+    const localDateStr = new Date().toLocaleDateString('en-CA');
+
+    const isAlreadyClaimed = Boolean(
+      user.lastCheckInDate === todayStr ||
+      user.lastCheckInDate === utcDateStr ||
+      user.lastCheckInDate === localDateStr ||
+      (user.lastCheckInDate && user.lastCheckInDate.startsWith(todayStr)) ||
+      (user.lastCheckInDate && user.lastCheckInDate.startsWith(utcDateStr)) ||
+      localStorage.getItem(`freeearn_checkin_${user.uid}_${todayStr}`) === 'claimed' ||
+      localStorage.getItem(`freeearn_checkin_${user.uid}_${utcDateStr}`) === 'claimed'
+    );
+
+    if (isAlreadyClaimed) {
+      return { success: false, reward: 0, message: 'Aap aaj ka Check-in reward already claim kar chuke hain! Kripya kal dobara aaiye.' };
     }
 
     const currentStreak = user.consecutiveCheckIns || 0;
@@ -957,7 +1061,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return {
         success: false,
         reward: 0,
-        message: validation.error || 'Suspicious activity detected. Please try again later or contact support.',
+        message: validation.error || 'Aap aaj ka Check-in reward already claim kar chuke hain!',
       };
     }
 
@@ -977,6 +1081,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       consecutiveCheckIns: newStreak,
     };
 
+    // Update locally and in persistent browser storage
+    setUser(updatedUser);
+    localStorage.setItem('freeearn_local_user', JSON.stringify(updatedUser));
+    setLocalItem(`freeearn_user_${user.uid}`, updatedUser);
+    localStorage.setItem(`freeearn_checkin_${user.uid}_${todayStr}`, 'claimed');
+    localStorage.setItem(`freeearn_checkin_${user.uid}_${utcDateStr}`, 'claimed');
+
     await updateUserProfile(user.uid, {
       coins: newCoins,
       todayEarnings: newToday,
@@ -985,6 +1096,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       lastCheckInDate: todayStr,
       consecutiveCheckIns: newStreak,
     });
+
+    // Notify backend bonus endpoint
+    fetch('/api/bonuses/claim-checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.uid }),
+    }).catch(() => {});
 
     await createTransaction({
       userId: user.uid,
@@ -995,8 +1113,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       description: validation.rewardDescription || `Daily Check-in Day ${newStreak} bonus reward`,
     });
 
-    setUser(updatedUser);
-    localStorage.setItem('freeearn_local_user', JSON.stringify(updatedUser));
     await loadUserData(user.uid);
     triggerConfetti();
     addNotification('Daily Check-in Success!', `You earned +${authorizedCoins} coins! Streak: ${newStreak} days.`, 'reward');
@@ -1008,16 +1124,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   };
 
-  // 2. Daily Lucky Bonus (Server-Validated Anti-Cheat)
+  // 2. Daily Lucky Bonus (Server-Validated Anti-Cheat, Strictly Once Per Day)
   const claimDailyBonus = async (): Promise<{ success: boolean; reward: number; message: string }> => {
     if (!user) return { success: false, reward: 0, message: 'Please login first' };
 
     const todayStr = getTodayDateString();
-    if (user.lastDailyBonusDate === todayStr) {
+    const utcDateStr = new Date().toISOString().split('T')[0];
+    const localDateStr = new Date().toLocaleDateString('en-CA');
+
+    const isAlreadyClaimed = Boolean(
+      user.lastDailyBonusDate === todayStr ||
+      user.lastDailyBonusDate === utcDateStr ||
+      user.lastDailyBonusDate === localDateStr ||
+      (user.lastDailyBonusDate && user.lastDailyBonusDate.startsWith(todayStr)) ||
+      (user.lastDailyBonusDate && user.lastDailyBonusDate.startsWith(utcDateStr)) ||
+      localStorage.getItem(`freeearn_bonus_${user.uid}_${todayStr}`) === 'claimed' ||
+      localStorage.getItem(`freeearn_bonus_${user.uid}_${utcDateStr}`) === 'claimed'
+    );
+
+    if (isAlreadyClaimed) {
       return {
         success: false,
         reward: 0,
-        message: 'Aap aaj ka Daily Bonus already claim kar chuke hain! Kripya kal dobara aaiye.',
+        message: 'Aap aaj ka Daily Bonus already claim kar chuke hain! Din me sirf 1 baar claim kar sakte hain.',
       };
     }
 
@@ -1052,12 +1181,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       lastDailyBonusDate: todayStr,
     };
 
+    // Update state and local storage immediately
+    setUser(updatedUser);
+    localStorage.setItem('freeearn_local_user', JSON.stringify(updatedUser));
+    setLocalItem(`freeearn_user_${user.uid}`, updatedUser);
+    localStorage.setItem(`freeearn_bonus_${user.uid}_${todayStr}`, 'claimed');
+    localStorage.setItem(`freeearn_bonus_${user.uid}_${utcDateStr}`, 'claimed');
+    setLocalItem(`freeearn_user_${user.uid}`, updatedUser);
+
     await updateUserProfile(user.uid, {
       coins: newCoins,
       todayEarnings: newToday,
       totalEarnings: newTotal,
       lastDailyBonusDate: todayStr,
     });
+
+    // Notify backend bonus endpoint
+    fetch('/api/bonuses/claim-daily', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.uid }),
+    }).catch(() => {});
 
     await createTransaction({
       userId: user.uid,
@@ -1068,9 +1212,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       description: validation.rewardDescription || 'Server-verified Daily Mystery Bonus',
     });
 
-    setUser(updatedUser);
-    localStorage.setItem('freeearn_local_user', JSON.stringify(updatedUser));
-    setLocalItem(`freeearn_user_${user.uid}`, updatedUser);
     await loadUserData(user.uid);
     triggerConfetti();
     addNotification('Daily Bonus Claimed!', `+${authorizedReward} coins credited to your wallet!`, 'reward');
@@ -1248,6 +1389,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setUser(updatedUser);
     localStorage.setItem('freeearn_local_user', JSON.stringify(updatedUser));
     setWithdrawals((prev) => [wd, ...prev]);
+    setAllWithdrawals((prev) => [wd, ...prev.filter((w) => w.id !== wd.id)]);
     await loadUserData(user.uid);
 
     addNotification(
@@ -1293,6 +1435,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addNotification('New Task Created', `Task "${taskData.title}" is now active in marketplace.`, 'system');
   };
 
+  const adminUpdateTask = async (taskId: string, updates: Partial<Task>) => {
+    await updateTask(taskId, updates);
+    await refreshAllData();
+    addNotification('Task Updated', `Task #${taskId} updated successfully.`, 'system');
+  };
+
   const adminDeleteTask = async (taskId: string) => {
     await deleteTask(taskId);
     await refreshAllData();
@@ -1326,6 +1474,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await updateUserProfile(userId, { isBlocked });
     await refreshAllData();
     addNotification('User Status Changed', `User has been ${isBlocked ? 'Blocked' : 'Unblocked'}.`, 'system');
+  };
+
+  const adminResetDailyBonusForUser = async (userId: string) => {
+    await updateUserProfile(userId, { lastDailyBonusDate: '' });
+    await refreshAllData();
+    addNotification('Daily Bonus Reset', 'User daily bonus status reset successfully.', 'system');
+  };
+
+  const adminResetStreakForUser = async (userId: string, consecutiveCheckIns: number = 0) => {
+    await updateUserProfile(userId, { consecutiveCheckIns, lastCheckInDate: '' });
+    await refreshAllData();
+    addNotification('Streak Updated', 'User check-in streak reset successfully.', 'system');
+  };
+
+  const adminDeleteUser = async (userId: string) => {
+    await deleteUser(userId);
+    await refreshAllData();
+    addNotification('User Removed', `User #${userId} removed from database.`, 'system');
   };
 
   const adminPostAnnouncement = async (
@@ -1369,6 +1535,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         loginWithGoogle,
         loginWithEmail,
         loginWithPassword: loginWithEmail,
+        loginWithOtp,
         registerWithEmail,
         loginWithMobile,
         logout,
@@ -1381,14 +1548,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         allUsers,
         allSubmissions,
         allWithdrawals,
+        loadAdminData,
         adminApproveTask,
         adminRejectTask,
         adminProcessWithdrawalAction,
         adminCreateNewTask,
+        adminUpdateTask,
         adminDeleteTask,
         adminUpdateAppSettings,
         adminAdjustBalance,
         adminToggleUserBlock,
+        adminResetDailyBonusForUser,
+        adminResetStreakForUser,
+        adminDeleteUser,
         adminPostAnnouncement,
         adminDeleteAnnouncement,
         refreshAllData,

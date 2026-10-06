@@ -22,7 +22,11 @@ import {
   EyeOff,
 } from 'lucide-react';
 
-export const AuthView: React.FC = () => {
+interface AuthViewProps {
+  onBackToLanding?: () => void;
+}
+
+export const AuthView: React.FC<AuthViewProps> = ({ onBackToLanding }) => {
   const {
     loginWithGoogle,
     loginWithEmail,
@@ -31,10 +35,13 @@ export const AuthView: React.FC = () => {
   } = useApp();
 
   // Exactly TWO tabs: Register or Sign In
-  const [activeTab, setActiveTab] = useState<'register' | 'signin'>('register');
+  const lastMobile = localStorage.getItem('freeearn_last_mobile') || '';
+  const [activeTab, setActiveTab] = useState<'register' | 'signin'>(() => {
+    return lastMobile ? 'signin' : 'register';
+  });
 
   // Sign In state (Mobile Number + Password)
-  const [signInMobile, setSignInMobile] = useState('');
+  const [signInMobile, setSignInMobile] = useState(lastMobile);
   const [signInPassword, setSignInPassword] = useState('');
   const [showSignInPassword, setShowSignInPassword] = useState(false);
 
@@ -208,18 +215,25 @@ export const AuthView: React.FC = () => {
       return;
     }
 
+    if (!referralCode.trim()) {
+      setErrorMessage('Referral Code अनिवार्य (Mandatory) hai! Bina Referral Code ke register nahi ho sakta. Kripya apne dost ka code dalein ya "Use Code: FE9JY31" par click karein.');
+      return;
+    }
+
     setLoading(true);
     const res = await registerWithEmail(
       registerName.trim(),
       registerEmail.trim(),
       registerPassword,
       cleanMobile,
-      referralCode.trim()
+      referralCode.trim().toUpperCase()
     );
     setLoading(false);
 
     if (res.success) {
+      localStorage.setItem('freeearn_last_mobile', cleanMobile);
       setSuccessMessage('Registration successful! Redirecting to Free Earn...');
+      setAppActiveTab('home');
     } else {
       setErrorMessage(res.error || 'Registration failed. Kripya details check karein.');
     }
@@ -231,8 +245,8 @@ export const AuthView: React.FC = () => {
     setErrorMessage('');
     setSuccessMessage('');
 
-    const cleanMobile = signInMobile.trim();
-    if (!cleanMobile) {
+    const rawInput = signInMobile.trim();
+    if (!rawInput) {
       setErrorMessage('Kripya apna Registered Mobile Number enter karein.');
       return;
     }
@@ -243,12 +257,15 @@ export const AuthView: React.FC = () => {
     }
 
     setLoading(true);
-    // loginWithEmail accepts mobile number or email + password
+    // Sanitize mobile if user entered +91 or spaces, or keep email if contains @
+    const cleanMobile = rawInput.includes('@') ? rawInput : rawInput.replace(/[^0-9]/g, '').slice(-10);
+    localStorage.setItem('freeearn_last_mobile', cleanMobile);
     const res = await loginWithEmail(cleanMobile, signInPassword);
     setLoading(false);
 
     if (res.success) {
       setSuccessMessage('Login successful! Redirecting...');
+      setAppActiveTab('home');
     } else {
       setErrorMessage(res.error || 'Sign in failed. Mobile number ya Password galat hai.');
     }
@@ -284,13 +301,26 @@ export const AuthView: React.FC = () => {
       </div>
 
       <div className="relative w-full max-w-md bg-slate-900/90 border border-indigo-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-indigo-950/80 backdrop-blur-xl z-10 animate-in fade-in duration-300">
+        {/* Back to landing page link */}
+        {onBackToLanding && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={onBackToLanding}
+              className="text-xs text-indigo-300 hover:text-white flex items-center space-x-1 cursor-pointer transition-colors"
+            >
+              <span>← Back to Smart Earn Landing Page</span>
+            </button>
+          </div>
+        )}
+
         {/* Top App Branding */}
         <div className="text-center mb-6">
           <div className="inline-flex w-18 h-18 p-1 rounded-3xl bg-gradient-to-tr from-amber-400 via-purple-600 to-indigo-600 items-center justify-center shadow-2xl shadow-indigo-600/50 mb-3 animate-float-3d">
-            <img src="/app-icon.svg" alt="Free Earn 3D App Icon" className="w-16 h-16 rounded-[22px] object-cover" />
+            <img src="/app-icon.svg" alt="Smart Earn 3D App Icon" className="w-16 h-16 rounded-[22px] object-cover" />
           </div>
           <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-purple-200 tracking-tight">
-            FREE EARN
+            SMART EARN
           </h1>
           <p className="text-xs text-indigo-300/90 font-medium mt-0.5">
             Earn Smart. Earn Daily. Instant UPI & Bank Payouts.
@@ -610,22 +640,39 @@ export const AuthView: React.FC = () => {
               </div>
             </div>
 
-            {/* 7. Referral Code (Optional) */}
+            {/* 7. Referral Code (Mandatory) */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-[11px] font-bold text-slate-300 flex items-center space-x-1">
-                  <Gift className="w-3 h-3 text-pink-400" />
-                  <span>Referral Code (Optional)</span>
+                  <Gift className="w-3.5 h-3.5 text-pink-400" />
+                  <span>Referral Code / रेफरल कोड <span className="text-rose-400">*</span></span>
                 </label>
-                <span className="text-[10px] text-emerald-400 font-bold">+50 Bonus Coins</span>
+                <span className="text-[10px] text-amber-300 font-extrabold uppercase bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/40">
+                  अनिवार्य (Mandatory) • +50 Coins
+                </span>
               </div>
-              <input
-                type="text"
-                placeholder="e.g. ANKUSH07"
-                value={referralCode}
-                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                className="w-full px-4 py-2.5 bg-slate-950/80 border border-indigo-900/50 rounded-xl text-sm font-mono text-indigo-300 placeholder-slate-500 focus:outline-none focus:border-indigo-500 uppercase"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  placeholder="Enter Referral Code (e.g. FE9JY31)"
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value.toUpperCase().trim())}
+                  className="w-full pl-4 pr-32 py-2.5 bg-slate-950/80 border border-indigo-500/70 rounded-xl text-sm font-mono text-indigo-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 uppercase font-bold"
+                />
+                {!referralCode && (
+                  <button
+                    type="button"
+                    onClick={() => setReferralCode('FE9JY31')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold px-2 py-1 rounded-lg transition-colors shadow-sm"
+                  >
+                    Use: FE9JY31
+                  </button>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Bina referral code ke register nahi ho sakta. Agar friend ka code nahi hai to button par click karke <strong>FE9JY31</strong> use karein.
+              </p>
             </div>
 
             {/* Submit Register Button */}

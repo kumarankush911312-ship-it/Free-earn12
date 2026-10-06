@@ -243,7 +243,7 @@ export const ThreeDSplashScreen: React.FC<ThreeDSplashScreenProps> = ({
                   </span>
 
                   <span className="text-[9px] font-black text-amber-950 tracking-widest uppercase -mt-1 opacity-90">
-                    FREE EARN
+                    SMART EARN
                   </span>
                 </div>
               </div>
@@ -264,7 +264,7 @@ export const ThreeDSplashScreen: React.FC<ThreeDSplashScreenProps> = ({
           </div>
 
           <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-purple-200">
-            FREE EARN
+            SMART EARN
           </h1>
           <p className="text-xs text-indigo-200/90 font-medium">
             Earn Smart. Earn Daily. Instant UPI & Bank Payouts.

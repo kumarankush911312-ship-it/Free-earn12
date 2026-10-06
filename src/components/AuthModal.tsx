@@ -192,13 +192,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
+    if (!referralCode.trim()) {
+      setErrorMessage('Referral Code अनिवार्य (Mandatory) hai! Bina Referral Code ke register nahi ho sakta. Kripya apne dost ka code dalein ya "FE9JY31" use karein.');
+      return;
+    }
+
     setLoading(true);
     const res = await registerWithEmail(
       registerName.trim(),
       registerEmail.trim(),
       registerPassword,
       cleanMobile,
-      referralCode.trim()
+      referralCode.trim().toUpperCase()
     );
     setLoading(false);
 
@@ -239,7 +244,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           <div className="inline-flex w-14 h-14 p-0.5 rounded-2xl bg-gradient-to-tr from-amber-400 via-purple-600 to-indigo-600 items-center justify-center shadow-lg shadow-indigo-600/40 mb-2">
             <img src="/app-icon.svg" alt="Free Earn" className="w-full h-full rounded-[14px] object-cover" />
           </div>
-          <h3 className="text-xl font-black text-white tracking-tight">FREE EARN</h3>
+          <h3 className="text-xl font-black text-white tracking-tight">SMART EARN</h3>
           <p className="text-xs text-indigo-300">Earn Daily & Instant UPI Withdrawals</p>
         </div>
 
@@ -542,18 +547,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               </div>
             </div>
 
-            {/* 5. Referral Code */}
+            {/* 5. Referral Code (Mandatory) */}
             <div>
-              <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                Referral Code (Optional) <span className="text-emerald-400">+50 Coins</span>
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. ANKUSH07"
-                value={referralCode}
-                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                className="w-full px-3 py-2 bg-slate-950/80 border border-indigo-900/50 rounded-xl text-xs font-mono text-indigo-300 uppercase focus:outline-none focus:border-indigo-500"
-              />
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-slate-300">
+                  Referral Code / रेफरल कोड <span className="text-rose-400">*</span>
+                </label>
+                <span className="text-[10px] text-amber-300 font-extrabold uppercase bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/40">
+                  Required • +50 Coins
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  placeholder="Enter Referral Code (e.g. FE9JY31)"
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value.toUpperCase().trim())}
+                  className="w-full pl-3 pr-28 py-2 bg-slate-950/80 border border-indigo-500/70 rounded-xl text-xs font-mono text-indigo-200 uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                />
+                {!referralCode && (
+                  <button
+                    type="button"
+                    onClick={() => setReferralCode('FE9JY31')}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold px-2 py-1 rounded-lg"
+                  >
+                    Use: FE9JY31
+                  </button>
+                )}
+              </div>
             </div>
 
             <button

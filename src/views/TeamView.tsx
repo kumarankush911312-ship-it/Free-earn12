@@ -66,20 +66,26 @@ export const TeamView: React.FC<TeamViewProps> = ({ onOpenAuth }) => {
 
   const shareWhatsapp = () => {
     const text = encodeURIComponent(
-      `🎁 *Free Earn App Invite*\nEarn real cash daily with daily check-ins, tasks & video ads!\n\nUse my Referral Code: *${referralCode}* to get an instant *+50 Free Coins* joining bonus!\n\n👇 Click this link to register & start earning:\n${referralLink}`
+      `🎁 *Free Earn App Invite*\nEarn real cash daily with daily check-ins, tasks & video ads!\n\nUse my Referral Code: *${referralCode}* to get an instant *+${settings.referralJoinBonusCoins || 50} Free Coins* joining bonus!\n\n👇 Click this link to register & start earning:\n${referralLink}`
     );
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
   const shareTelegram = () => {
     const text = encodeURIComponent(
-      `🎁 Join Free Earn App and earn daily rewards! Use code ${referralCode} for +50 Free Coins bonus!\n${referralLink}`
+      `🎁 Join Free Earn App and earn daily rewards! Use code ${referralCode} for +${settings.referralJoinBonusCoins || 50} Free Coins bonus!\n${referralLink}`
     );
     window.open(`https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${text}`, '_blank');
   };
 
   return (
     <div className="space-y-4 pb-20 animate-in fade-in duration-200">
+      {settings.referralEnabled === false && (
+        <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-semibold text-center">
+          ⚠️ Referral Program is temporarily paused by the administrator. Any past earned referral commissions remain credited.
+        </div>
+      )}
+
       {/* Referral Hero Card */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-purple-950 via-indigo-950 to-slate-950 p-6 border border-purple-500/30 shadow-xl">
         <div className="relative z-10 text-center space-y-2">
