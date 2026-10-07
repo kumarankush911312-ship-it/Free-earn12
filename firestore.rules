@@ -78,6 +78,24 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Referrals System
+    match /referrals/{referralId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Referral Campaigns
+    match /referral_campaigns/{campaignId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Fraud Reviews
+    match /fraud_reviews/{reviewId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // Admin whitelist
     match /admins/{adminId} {
       allow read, write: if isAdmin();

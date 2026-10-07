@@ -53,7 +53,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onBackToLanding }) => {
   const [registerPassword, setRegisterPassword] = useState('');
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [referralCode, setReferralCode] = useState(() => {
-    return localStorage.getItem('freeearn_pending_ref') || '';
+    return localStorage.getItem('freeearn_pending_ref') || 'SE9P5VUH';
   });
 
   // OTP Verification state
@@ -140,7 +140,17 @@ export const AuthView: React.FC<AuthViewProps> = ({ onBackToLanding }) => {
         setSmsNotification({ otp: res.otp, phone: cleanMobile });
       }
     } else {
-      setErrorMessage(res.error || 'OTP send failed. Kripya punah koshish karein.');
+      if (
+        res.error &&
+        (res.error.toLowerCase().includes('already registered') ||
+          res.error.toLowerCase().includes('pehle se registered'))
+      ) {
+        setErrorMessage(res.error);
+        setSignInMobile(cleanMobile);
+        setTimeout(() => setActiveTab('signin'), 1500);
+      } else {
+        setErrorMessage(res.error || 'OTP send failed. Kripya punah koshish karein.');
+      }
     }
   };
 
@@ -215,10 +225,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onBackToLanding }) => {
       return;
     }
 
-    if (!referralCode.trim()) {
-      setErrorMessage('Referral Code अनिवार्य (Mandatory) hai! Bina Referral Code ke register nahi ho sakta. Kripya apne dost ka code dalein ya "Use Code: FE9JY31" par click karein.');
-      return;
-    }
+    const cleanRefCode = (referralCode.trim() || 'SE9P5VUH').toUpperCase();
 
     setLoading(true);
     const res = await registerWithEmail(
@@ -226,7 +233,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onBackToLanding }) => {
       registerEmail.trim(),
       registerPassword,
       cleanMobile,
-      referralCode.trim().toUpperCase()
+      cleanRefCode
     );
     setLoading(false);
 

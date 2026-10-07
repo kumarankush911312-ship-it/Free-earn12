@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-05T19:51:59.254Z",
+  "updatedAt": "2026-10-07T19:08:53.195Z",
   "devices": [
     {
       "deviceHash": "dev_670c5c2aa62919175d69734a",
@@ -13,7 +13,7 @@
       "ipAddress": "127.0.0.1",
       "userAgent": "TestPhone/1.0 (Android 14; Pixel 8)",
       "hardwareEntropy": "1080x2400x24|2.75|8|Linux aarch64|5|Asia/Kolkata|Mali-G715",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     },
     {
       "deviceHash": "dev_9dd2d07e1d1be3508e93e9be",
@@ -26,7 +26,7 @@
       "lastSeenAt": "2026-10-04T07:20:41.161Z",
       "ipAddress": "2409:40e4:1308:2089:8000::",
       "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     },
     {
       "deviceHash": "dev_dfb9947b6ce6a1b77d45d267",
@@ -39,7 +39,7 @@
       "lastSeenAt": "2026-10-04T07:24:36.918Z",
       "ipAddress": "127.0.0.1",
       "userAgent": "Python-urllib/3.10",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     },
     {
       "deviceHash": "dev_c2a86400caf3b714dbb63e0b",
@@ -53,7 +53,7 @@
       "ipAddress": "2409:40e4:1308:2089:8000::",
       "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36",
       "hardwareEntropy": "360x785x24|2|8|Linux armv81|5|Asia/Calcutta|ANGLE (ARM, Mali-G57 MC2, OpenGL ES 3.2)",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     },
     {
       "deviceHash": "dev_fa50eb6251cc9aa8717275a5",
@@ -63,10 +63,10 @@
       "userMobile": "9998887776",
       "userEmail": "test@example.com",
       "registeredAt": "2026-10-05T19:32:31.337Z",
-      "lastSeenAt": "2026-10-05T19:51:59.254Z",
+      "lastSeenAt": "2026-10-07T19:08:53.195Z",
       "ipAddress": "127.0.0.1",
       "userAgent": "curl/7.88.1",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     }
   ],
   "phones": [
@@ -75,35 +75,35 @@
       "userId": "user_phone_9811111111",
       "deviceHash": "dev_670c5c2aa62919175d69734a",
       "registeredAt": "2026-10-03T10:33:04.887Z",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     },
     {
       "mobile": "9822222222",
       "userId": "user_phone_9822222222",
       "deviceHash": "dev_670c5c2aa62919175d69734a",
       "registeredAt": "2026-10-03T10:33:12.173Z",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     },
     {
       "mobile": "9870001122",
       "userId": "user_phone_9870001122",
       "deviceHash": "dev_dfb9947b6ce6a1b77d45d267",
       "registeredAt": "2026-10-04T07:07:53.037Z",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     },
     {
       "mobile": "9113124207",
       "userId": "user_phone_9113124207",
       "deviceHash": "dev_c2a86400caf3b714dbb63e0b",
       "registeredAt": "2026-10-04T07:10:00.192Z",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     },
     {
       "mobile": "9998887776",
       "userId": "user_phone_9998887776",
       "deviceHash": "dev_fa50eb6251cc9aa8717275a5",
       "registeredAt": "2026-10-05T19:32:31.337Z",
-      "isUnlockedByAdmin": false
+      "isUnlockedByAdmin": true
     }
   ],
   "appeals": [

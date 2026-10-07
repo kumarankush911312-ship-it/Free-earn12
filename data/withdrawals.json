@@ -10,31 +10,5 @@
     "upiId": "test@upi",
     "status": "pending",
     "requestedAt": "2026-10-05T19:40:45.298Z"
-  },
-  {
-    "id": "wd_demo_priya_upi",
-    "userId": "user_demo_priya",
-    "userName": "Priya Verma",
-    "userMobile": "+91 98123 45678",
-    "amountCoins": 280,
-    "amountCurrency": 2.8,
-    "method": "upi",
-    "upiId": "priyaverma@okaxis",
-    "status": "pending",
-    "requestedAt": "2026-10-01T01:45:00.000Z"
-  },
-  {
-    "id": "wd_demo_rahul_paid",
-    "userId": "user_demo_rahul",
-    "userName": "Rahul Sharma",
-    "userMobile": "+91 98765 12345",
-    "amountCoins": 200,
-    "amountCurrency": 2,
-    "method": "upi",
-    "upiId": "rahul99@oksbi",
-    "status": "paid",
-    "requestedAt": "2026-09-29T11:00:00.000Z",
-    "processedAt": "2026-09-29T12:30:00.000Z",
-    "txnHash": "UPI/2638192837/SUCCESS"
   }
 ]

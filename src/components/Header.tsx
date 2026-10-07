@@ -8,15 +8,17 @@ import {
   ShieldCheck,
   Sparkles,
   ArrowRightLeft,
+  Video,
 } from 'lucide-react';
 
 interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenAuth: () => void;
   onViewLanding?: () => void;
+  onOpenVideoCreator?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenNotifications, onOpenAuth, onViewLanding }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenNotifications, onOpenAuth, onViewLanding, onOpenVideoCreator }) => {
   const {
     user,
     isAdmin,
@@ -86,6 +88,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNotifications, onOpenAuth,
 
         {/* Action Controls */}
         <div className="flex items-center space-x-2">
+          {/* AI Promo Video Creator for Social Media */}
+          {onOpenVideoCreator && (
+            <button
+              onClick={onOpenVideoCreator}
+              className="btn-3d flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-pink-600 via-rose-600 to-indigo-600 hover:from-pink-500 hover:to-rose-500 text-[11px] font-black text-white shadow-md shadow-pink-600/40 border border-pink-400/30 transition-all hover:scale-105 active:scale-95 animate-pulse"
+              title="Create & Download AI Promo Video (Reels / Shorts / WhatsApp Status)"
+            >
+              <Video className="w-3.5 h-3.5 text-pink-200" />
+              <span className="hidden xs:inline sm:inline">AI Video</span>
+            </button>
+          )}
+
           {/* Landing Page Button */}
           {onViewLanding && (
             <button

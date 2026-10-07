@@ -23,6 +23,9 @@ import {
   Transaction,
   Withdrawal,
   ReferralRecord,
+  Referral,
+  ReferralCampaign,
+  FraudReview,
   Announcement,
   AppSettings,
 } from '../types';
@@ -309,17 +312,57 @@ export async function deleteUser(uid: string): Promise<void> {
 }
 
 export async function getAllUsers(): Promise<UserProfile[]> {
-  const localUsers = getLocalItem<UserProfile[]>('freeearn_demo_all_users', DEMO_USERS);
-
-  // Background fetch from Backend REST API
-  apiFetch<{ success: boolean; users: UserProfile[] }>('/api/users').then((res) => {
-    if (res && res.success && res.users) {
-      setLocalItem('freeearn_demo_all_users', res.users);
+  try {
+    const res = await apiFetch<{ success: boolean; users: UserProfile[] }>('/api/users');
+    if (res && res.success && Array.isArray(res.users)) {
+      const realUsers = res.users.filter((u) => u && u.uid && !u.uid.startsWith('user_demo_'));
+      setLocalItem('freeearn_demo_all_users', realUsers);
+      return realUsers;
     }
-  });
+  } catch (err) {
+    console.warn('Backend users fetch notice:', err);
+  }
 
-  return localUsers;
+  const localUsers = getLocalItem<UserProfile[]>('freeearn_demo_all_users', []);
+  const cleanRealUsers = (localUsers || []).filter((u) => u && u.uid && !u.uid.startsWith('user_demo_'));
+  setLocalItem('freeearn_demo_all_users', cleanRealUsers);
+  return cleanRealUsers;
 }
+
+export async function adminCreateRealUser(userData: {
+  name: string;
+  mobile: string;
+  email?: string;
+  password?: string;
+  coins?: number;
+  isAdmin?: boolean;
+}): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+  try {
+    const res = await apiFetch<{ success: boolean; user?: UserProfile; error?: string }>('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(userData),
+    });
+
+    if (res && res.success && res.user) {
+      const existing = getLocalItem<UserProfile[]>('freeearn_demo_all_users', []);
+      const updatedList = [
+        res.user,
+        ...existing.filter((u) => u && u.uid !== res.user!.uid && !u.uid.startsWith('user_demo_')),
+      ];
+      setLocalItem('freeearn_demo_all_users', updatedList);
+      setLocalItem(`freeearn_user_${res.user.uid}`, res.user);
+
+      if (db) {
+        setDoc(doc(db, 'users', res.user.uid), res.user).catch(() => {});
+      }
+      return { success: true, user: res.user };
+    }
+    return { success: false, error: res?.error || 'Failed to create real user' };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network connection failed' };
+  }
+}
+
 
 // ---------------- TASKS ----------------
 export async function getTasks(): Promise<Task[]> {
@@ -332,11 +375,11 @@ export async function getTasks(): Promise<Task[]> {
   } catch {}
 
   const localTasks = getLocalItem<Task[]>('freeearn_demo_tasks', []);
-  if (localTasks.length > 0) {
+  if (localTasks.length >= INITIAL_TASKS.length) {
     return localTasks;
   }
 
-  // Seed initial tasks
+  // Seed initial full task list
   const seeded: Task[] = INITIAL_TASKS.map((t, idx) => ({
     ...t,
     id: `task_${idx + 1}_${Date.now()}`,
@@ -470,16 +513,17 @@ export async function getUserSubmissions(userId: string): Promise<TaskSubmission
 }
 
 export async function getAllSubmissions(): Promise<TaskSubmission[]> {
-  const subs = getLocalItem<TaskSubmission[]>('freeearn_demo_submissions', DEMO_SUBMISSIONS);
+  const subs = getLocalItem<TaskSubmission[]>('freeearn_demo_submissions', []);
 
   // Background fetch
   apiFetch<{ success: boolean; submissions: TaskSubmission[] }>('/api/submissions').then((res) => {
     if (res && res.success && res.submissions) {
-      setLocalItem('freeearn_demo_submissions', res.submissions);
+      const realSubs = res.submissions.filter((s) => s && s.userId && !s.userId.startsWith('user_demo_'));
+      setLocalItem('freeearn_demo_submissions', realSubs);
     }
   });
 
-  return subs;
+  return (subs || []).filter((s) => s && s.userId && !s.userId.startsWith('user_demo_') && !s.id.startsWith('sub_demo_'));
 }
 
 export async function reviewSubmission(
@@ -687,8 +731,16 @@ export async function getAllWithdrawals(): Promise<Withdrawal[]> {
   // 2. Load local cache withdrawals
   const localList = getLocalItem<Withdrawal[]>('freeearn_demo_withdrawals', DEMO_WITHDRAWALS);
   localList.forEach((w) => {
-    if (w && w.id && !mergedMap.has(w.id)) {
-      mergedMap.set(w.id, w);
+    if (w && w.id) {
+      const existing = mergedMap.get(w.id);
+      if (!existing) {
+        mergedMap.set(w.id, w);
+      } else {
+        // If local has processed status while server still has pending, prefer the updated one
+        if (w.status !== 'pending' && existing.status === 'pending') {
+          mergedMap.set(w.id, { ...existing, ...w });
+        }
+      }
     }
   });
 
@@ -699,7 +751,17 @@ export async function getAllWithdrawals(): Promise<Withdrawal[]> {
       if (!snap.empty) {
         snap.forEach((d) => {
           const item = d.data() as Withdrawal;
-          if (item && item.id) mergedMap.set(item.id, item);
+          if (item && item.id) {
+            const existing = mergedMap.get(item.id);
+            if (!existing) {
+              mergedMap.set(item.id, item);
+            } else {
+              // Don't overwrite an already updated/paid withdrawal with a stale pending one
+              if (item.status !== 'pending' || existing.status === 'pending') {
+                mergedMap.set(item.id, { ...existing, ...item });
+              }
+            }
+          }
         });
       }
     } catch (e) {
@@ -707,9 +769,9 @@ export async function getAllWithdrawals(): Promise<Withdrawal[]> {
     }
   }
 
-  const finalWithdrawals = Array.from(mergedMap.values()).sort(
-    (a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
-  );
+  const finalWithdrawals = Array.from(mergedMap.values())
+    .filter((w) => w && w.userId && !w.userId.startsWith('user_demo_') && !w.id.startsWith('wd_demo_'))
+    .sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
 
   setLocalItem('freeearn_demo_withdrawals', finalWithdrawals);
   return finalWithdrawals;
@@ -722,19 +784,40 @@ export async function updateWithdrawalStatus(
   rejectionReason?: string,
   txnHash?: string
 ): Promise<void> {
+  const finalTxnHash = txnHash || (newStatus === 'paid' ? adminNotes : undefined);
+  const finalReason = rejectionReason || (newStatus === 'rejected' ? adminNotes : undefined);
+  const nowIso = new Date().toISOString();
+
   const wds = getLocalItem<Withdrawal[]>('freeearn_demo_withdrawals', DEMO_WITHDRAWALS);
   const idx = wds.findIndex((w) => w.id === withdrawal.id);
+
+  const updatedWd: Withdrawal = {
+    ...withdrawal,
+    ...(idx >= 0 ? wds[idx] : {}),
+    status: newStatus,
+    adminNotes: adminNotes || (idx >= 0 ? wds[idx].adminNotes : undefined),
+    rejectionReason: finalReason,
+    txnHash: finalTxnHash || (idx >= 0 ? wds[idx].txnHash : undefined),
+    processedAt: nowIso,
+  };
+
   if (idx >= 0) {
-    wds[idx] = {
-      ...wds[idx],
-      status: newStatus,
-      adminNotes: adminNotes || wds[idx].adminNotes,
-      rejectionReason: rejectionReason || wds[idx].rejectionReason,
-      txnHash: txnHash || wds[idx].txnHash,
-      processedAt: new Date().toISOString(),
-    };
-    setLocalItem('freeearn_demo_withdrawals', wds);
+    wds[idx] = updatedWd;
+  } else {
+    wds.unshift(updatedWd);
   }
+  setLocalItem('freeearn_demo_withdrawals', wds);
+
+  // Also update user's specific cache if present
+  try {
+    const userWdKey = `freeearn_user_withdrawals_${withdrawal.userId}`;
+    const userWds = getLocalItem<Withdrawal[]>(userWdKey, []);
+    const uIdx = userWds.findIndex((w) => w.id === withdrawal.id);
+    if (uIdx >= 0) {
+      userWds[uIdx] = updatedWd;
+      setLocalItem(userWdKey, userWds);
+    }
+  } catch {}
 
   const profile = await getUserProfile(withdrawal.userId);
   if (profile) {
@@ -756,27 +839,35 @@ export async function updateWithdrawalStatus(
         amountCoins: withdrawal.amountCoins,
         amountCurrency: withdrawal.amountCurrency,
         status: 'completed',
-        description: `Refund for rejected withdrawal: ${rejectionReason || 'Details incorrect'}`,
+        description: `Refund for rejected withdrawal: ${finalReason || 'Details incorrect'}`,
         referenceId: withdrawal.id,
       });
     }
   }
 
-  // 1. Sync to Backend REST API
-  apiFetch(`/api/withdrawals/${withdrawal.id}/review`, {
-    method: 'POST',
-    body: JSON.stringify({ status: newStatus, adminNotes, rejectionReason, txnHash }),
-  });
+  // 1. Sync to Backend REST API (Awaited with full updated withdrawal payload)
+  try {
+    await apiFetch(`/api/withdrawals/${encodeURIComponent(withdrawal.id)}/review`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...updatedWd,
+        status: newStatus,
+        adminNotes: updatedWd.adminNotes,
+        rejectionReason: finalReason,
+        txnHash: finalTxnHash,
+      }),
+    });
+  } catch (err) {
+    console.warn('Backend withdrawal review sync error:', err);
+  }
 
-  // 2. Sync to Firebase
+  // 2. Sync to Firebase Firestore using setDoc with merge: true (never fails on non-existent doc)
   if (db) {
-    updateDoc(doc(db, 'withdrawals', withdrawal.id), {
-      status: newStatus,
-      adminNotes,
-      rejectionReason,
-      txnHash,
-      processedAt: new Date().toISOString(),
-    }).catch(() => {});
+    try {
+      await setDoc(doc(db, 'withdrawals', withdrawal.id), updatedWd, { merge: true });
+    } catch (err) {
+      console.warn('Firestore withdrawal sync notice:', err);
+    }
   }
 }
 
@@ -848,6 +939,25 @@ export async function deleteAnnouncement(annId: string): Promise<void> {
   } catch {}
 }
 
+export async function updateAnnouncement(annId: string, updates: Partial<Announcement>): Promise<void> {
+  const list = getLocalItem<Announcement[]>('freeearn_demo_announcements', []);
+  const updatedList = list.map((a) => (a.id === annId ? { ...a, ...updates } : a));
+  setLocalItem('freeearn_demo_announcements', updatedList);
+
+  try {
+    await apiFetch(`/api/announcements/${annId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  } catch {}
+}
+
+export async function deleteWithdrawalRecord(wdId: string): Promise<void> {
+  try {
+    await apiFetch(`/api/withdrawals/${wdId}`, { method: 'DELETE' });
+  } catch {}
+}
+
 // Exported functions for AppContext compatibility
 export async function requestWithdrawal(
   userProfile: UserProfile,
@@ -896,7 +1006,8 @@ export async function processWithdrawal(
 ): Promise<void> {
   const notes = adminNotes || '';
   const reason = newStatus === 'rejected' ? notes : undefined;
-  return updateWithdrawalStatus(withdrawal, newStatus, notes, reason, txnHash);
+  const finalUtr = txnHash || (newStatus === 'paid' ? notes : undefined);
+  return await updateWithdrawalStatus(withdrawal, newStatus, notes, reason, finalUtr);
 }
 
 export async function lookupReferralCode(code: string): Promise<{
@@ -1030,6 +1141,117 @@ export async function recordReferral(
   if (db) {
     setDoc(doc(db, 'referrals', id), refRecord).catch(() => {});
   }
+}
+
+// ---------------- PRODUCTION REFERRAL SYSTEM CLIENT APIS ----------------
+export interface UserReferralDashboardData {
+  success: boolean;
+  referralCode: string;
+  referralLink: string;
+  stats: {
+    totalInvited: number;
+    successfulReferrals: number;
+    pendingReferrals: number;
+    eligibleRewardsCoins: number;
+    totalRewardCoins: number;
+    totalRewardCurrency: number;
+  };
+  referrals: Array<{
+    id: string;
+    referredUserName: string;
+    referredUserMobile: string;
+    status: Referral['status'];
+    qualificationStatus: Referral['qualificationStatus'];
+    rewardStatus: Referral['rewardStatus'];
+    rewardAmountCoins: number;
+    createdAt: string;
+    qualifiedAt?: string;
+    rewardedAt?: string;
+    notes?: string;
+  }>;
+  campaign: {
+    name: string;
+    referrerRewardCoins: number;
+    refereeJoinBonusCoins: number;
+    qualificationRule: string;
+    maxRewardsPerUser: number;
+  };
+}
+
+export async function fetchUserReferralDashboard(uid: string): Promise<UserReferralDashboardData | null> {
+  return await apiFetch<UserReferralDashboardData>(`/api/referrals/my-referrals/${encodeURIComponent(uid)}`);
+}
+
+export interface AdminReferralsData {
+  success: boolean;
+  referrals: Referral[];
+  stats: {
+    totalReferrals: number;
+    verifiedReferrals: number;
+    pendingReferrals: number;
+    rewardEligibleReferrals: number;
+    rewardedReferrals: number;
+    rejectedReferrals: number;
+    totalRewardsCoins: number;
+    totalRewardsCurrency: number;
+    conversionRate: number;
+  };
+  campaign: ReferralCampaign;
+}
+
+export async function fetchAdminReferrals(): Promise<AdminReferralsData | null> {
+  return await apiFetch<AdminReferralsData>('/api/admin/referrals');
+}
+
+export async function adminApproveReferralReward(refId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await apiFetch<{ success: boolean; message?: string; error?: string }>(
+    `/api/admin/referrals/${encodeURIComponent(refId)}/approve-reward`,
+    { method: 'POST' }
+  );
+  return res || { success: false, error: 'Network request failed' };
+}
+
+export async function adminRejectReferral(refId: string, reason: string): Promise<{ success: boolean; error?: string }> {
+  const res = await apiFetch<{ success: boolean; error?: string }>(
+    `/api/admin/referrals/${encodeURIComponent(refId)}/reject`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }
+  );
+  return res || { success: false, error: 'Network request failed' };
+}
+
+export async function adminUpdateReferralCampaign(
+  campaign: Partial<ReferralCampaign>
+): Promise<{ success: boolean; campaign?: ReferralCampaign; error?: string }> {
+  const res = await apiFetch<{ success: boolean; campaign?: ReferralCampaign; error?: string }>(
+    '/api/admin/referrals/campaign',
+    {
+      method: 'PUT',
+      body: JSON.stringify(campaign),
+    }
+  );
+  return res || { success: false, error: 'Network request failed' };
+}
+
+export async function fetchReferralFraudReviews(): Promise<{ success: boolean; reviews: FraudReview[] } | null> {
+  return await apiFetch<{ success: boolean; reviews: FraudReview[] }>('/api/admin/referrals/fraud-reviews');
+}
+
+export async function adminResolveFraudReview(
+  id: string,
+  status: 'approved' | 'rejected',
+  adminNotes?: string
+): Promise<{ success: boolean; error?: string }> {
+  const res = await apiFetch<{ success: boolean; error?: string }>(
+    `/api/admin/referrals/fraud-reviews/${encodeURIComponent(id)}/resolve`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ status, adminNotes }),
+    }
+  );
+  return res || { success: false, error: 'Network request failed' };
 }
 
 // ---------------- MOBILE OTP AUTHENTICATION ----------------

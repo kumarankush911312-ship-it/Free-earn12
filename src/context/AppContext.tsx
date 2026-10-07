@@ -34,7 +34,9 @@ import {
   deleteUser,
   updateAppSettings,
   createAnnouncement,
+  updateAnnouncement,
   deleteAnnouncement,
+  deleteWithdrawalRecord,
   recordReferral,
   processReferralReward,
   getTodayDateString,
@@ -45,6 +47,7 @@ import {
   verifyMobileOtp,
   getLocalItem,
   setLocalItem,
+  adminCreateRealUser as apiAdminCreateRealUser,
 } from '../services/api';
 import { DEFAULT_SETTINGS } from '../services/seedData';
 import { auth, db } from '../firebase';
@@ -115,8 +118,19 @@ interface AppContextType {
   adminResetDailyBonusForUser: (userId: string) => Promise<void>;
   adminResetStreakForUser: (userId: string, consecutiveCheckIns?: number) => Promise<void>;
   adminDeleteUser: (userId: string) => Promise<void>;
+  adminCreateRealUser: (userData: {
+    name: string;
+    mobile: string;
+    email?: string;
+    password?: string;
+    coins?: number;
+    isAdmin?: boolean;
+  }) => Promise<{ success: boolean; user?: UserProfile; error?: string }>;
   adminPostAnnouncement: (title: string, message: string, badge: string, priority: 'high' | 'normal' | 'low') => Promise<void>;
+  adminUpdateAnnouncement: (annId: string, updates: Partial<Announcement>) => Promise<void>;
   adminDeleteAnnouncement: (annId: string) => Promise<void>;
+  adminUpdateUser: (userId: string, updates: Partial<UserProfile>) => Promise<void>;
+  adminDeleteWithdrawal: (wdId: string) => Promise<void>;
   refreshAllData: () => Promise<void>;
 }
 
@@ -246,9 +260,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         getAllSubmissions(),
         getAllWithdrawals(),
       ]);
-      setAllUsers(uList);
-      setAllSubmissions(subList);
-      setAllWithdrawals(wdList);
+      const realUsers = (uList || []).filter((u) => u && u.uid && !u.uid.startsWith('user_demo_'));
+      setAllUsers(realUsers);
+      setAllSubmissions((subList || []).filter((s) => s && s.userId && !s.userId.startsWith('user_demo_')));
+      setAllWithdrawals((wdList || []).filter((w) => w && w.userId && !w.userId.startsWith('user_demo_')));
     } catch (err) {
       console.error('Error loading admin data:', err);
     }
@@ -838,9 +853,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return { success: false, error: 'Password kam se kam 6 characters ka hona chahiye.' };
       }
 
-      if (!referralCode || !referralCode.trim()) {
-        return { success: false, error: 'Referral Code अनिवार्य (Mandatory) hai! Kripya kisi friend ka Referral Code enter karein.' };
-      }
+      const finalReferralCode = (referralCode && referralCode.trim() ? referralCode.trim() : 'SE9P5VUH').toUpperCase();
 
       const tenDigit = cleanMobile.slice(-10);
       const formattedMobile = `+91 ${tenDigit}`;
@@ -869,8 +882,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       let startingCoins = isUserAdmin ? 10000 : 100;
       let referredByCode = '';
 
-      if (referralCode && referralCode.trim() && !isUserAdmin) {
-        referredByCode = referralCode.trim().toUpperCase();
+      if (finalReferralCode && !isUserAdmin) {
+        referredByCode = finalReferralCode;
         startingCoins += settings.referralJoinBonusCoins || 50;
       }
 
@@ -881,7 +894,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         mobile: tenDigit,
         name: name.trim(),
         password: pass,
-        referralCode,
+        referralCode: finalReferralCode,
         isNew: true,
       });
 
@@ -1423,8 +1436,47 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     status: 'approved' | 'paid' | 'rejected',
     notes: string
   ) => {
+    // 1. Optimistically update allWithdrawals in context state for instant UI response
+    const nowIso = new Date().toISOString();
+    setAllWithdrawals((prev) =>
+      prev.map((w) =>
+        w.id === withdrawal.id
+          ? {
+              ...w,
+              status,
+              adminNotes: notes || w.adminNotes,
+              rejectionReason: status === 'rejected' ? notes : w.rejectionReason,
+              txnHash: status === 'paid' ? (notes || w.txnHash) : w.txnHash,
+              processedAt: nowIso,
+            }
+          : w
+      )
+    );
+
+    // 2. Optimistically update user balance in allUsers state if rejected or paid
+    setAllUsers((prev) =>
+      prev.map((u) => {
+        if (u.uid === withdrawal.userId) {
+          if (status === 'rejected') {
+            return {
+              ...u,
+              coins: (u.coins || 0) + withdrawal.amountCoins,
+              pendingWithdrawalCoins: Math.max(0, (u.pendingWithdrawalCoins || 0) - withdrawal.amountCoins),
+            };
+          } else if (status === 'paid') {
+            return {
+              ...u,
+              totalWithdrawn: (u.totalWithdrawn || 0) + withdrawal.amountCoins,
+              pendingWithdrawalCoins: Math.max(0, (u.pendingWithdrawalCoins || 0) - withdrawal.amountCoins),
+            };
+          }
+        }
+        return u;
+      })
+    );
+
     const targetUser = allUsers.find((u) => u.uid === withdrawal.userId);
-    await processWithdrawal(withdrawal, status, notes, targetUser);
+    await processWithdrawal(withdrawal, status, notes, targetUser, status === 'paid' ? notes : undefined);
     await refreshAllData();
     addNotification('Withdrawal Updated', `Withdrawal #${withdrawal.id} marked as ${status}.`, 'withdrawal');
   };
@@ -1494,6 +1546,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addNotification('User Removed', `User #${userId} removed from database.`, 'system');
   };
 
+  const adminCreateRealUser = async (userData: {
+    name: string;
+    mobile: string;
+    email?: string;
+    password?: string;
+    coins?: number;
+    isAdmin?: boolean;
+  }) => {
+    const res = await apiAdminCreateRealUser(userData);
+    if (res.success && res.user) {
+      await refreshAllData();
+      addNotification(
+        'Real User Added',
+        `Registered real user ${res.user.name} (${res.user.mobile || res.user.email}).`,
+        'system'
+      );
+      return { success: true, user: res.user };
+    }
+    return { success: false, error: res.error || 'Failed to add real user' };
+  };
+
   const adminPostAnnouncement = async (
     title: string,
     message: string,
@@ -1505,10 +1578,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addNotification('Announcement Broadcast', `Posted: ${title}`, 'announcement');
   };
 
+  const adminUpdateAnnouncement = async (annId: string, updates: Partial<Announcement>) => {
+    await updateAnnouncement(annId, updates);
+    await refreshAllData();
+    addNotification('Announcement Updated', 'Broadcast announcement updated successfully.', 'announcement');
+  };
+
   const adminDeleteAnnouncement = async (annId: string) => {
     await deleteAnnouncement(annId);
     await refreshAllData();
     addNotification('Announcement Removed', 'Broadcast announcement removed.', 'system');
+  };
+
+  const adminUpdateUser = async (userId: string, updates: Partial<UserProfile>) => {
+    await updateUserProfile(userId, updates);
+    await refreshAllData();
+    addNotification('User Updated', `Updated user #${userId} profile & balances.`, 'system');
+  };
+
+  const adminDeleteWithdrawal = async (wdId: string) => {
+    await deleteWithdrawalRecord(wdId);
+    await refreshAllData();
+    addNotification('Withdrawal Record Deleted', `Withdrawal #${wdId} removed.`, 'system');
   };
 
   const unreadNotificationCount = notifications.filter((n) => !n.read).length;
@@ -1561,8 +1652,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         adminResetDailyBonusForUser,
         adminResetStreakForUser,
         adminDeleteUser,
+        adminCreateRealUser,
         adminPostAnnouncement,
+        adminUpdateAnnouncement,
         adminDeleteAnnouncement,
+        adminUpdateUser,
+        adminDeleteWithdrawal,
         refreshAllData,
       }}
     >

@@ -9,63 +9,79 @@ import {
   CheckCircle,
   ExternalLink,
   ShieldCheck,
-  AlertTriangle,
   Play,
+  Pause,
   Sparkles,
   ChevronRight,
+  Tv,
   Star,
+  Download,
 } from 'lucide-react';
 
-interface RewardedAdModalProps {
+interface AdMobPageAdModalProps {
   isOpen: boolean;
+  targetTab: string;
   onClose: () => void;
 }
 
-export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClose }) => {
-  const { user, settings, recordRewardedAdReward } = useApp();
+export const AdMobPageAdModal: React.FC<AdMobPageAdModalProps> = ({
+  isOpen,
+  targetTab,
+  onClose,
+}) => {
+  const { settings, recordRewardedAdReward } = useApp();
 
   const [sponsor, setSponsor] = useState<AdSponsor | null>(null);
-  const [adSessionId, setAdSessionId] = useState('');
-  const [secondsRemaining, setSecondsRemaining] = useState(15);
+  const [secondsRemaining, setSecondsRemaining] = useState(5);
+  const [canSkip, setCanSkip] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [showExitWarning, setShowExitWarning] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [rewardGranted, setRewardGranted] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [rewardClaimed, setRewardClaimed] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
+  const totalDuration = settings.pageAdSkipSeconds || 5; // 5-second full screen interstitial page ad
+  const rewardCoins = settings.pageAdRewardCoins ?? 5; // Fixed 5 coins per page ad
+
   useEffect(() => {
     if (isOpen) {
-      const selectedSponsor = RewardedAdController.getRandomSponsor();
-      setSponsor(selectedSponsor);
-      setAdSessionId(`AD_SESS_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
-      setSecondsRemaining(selectedSponsor.videoDurationSeconds);
+      const selected = RewardedAdController.getRandomSponsor();
+      setSponsor(selected);
+      setSecondsRemaining(5);
+      setCanSkip(false);
       setIsCompleted(false);
-      setShowExitWarning(false);
-      setVerifying(false);
-      setRewardGranted(false);
+      setRewardClaimed(false);
+      setIsPlaying(true);
     }
-  }, [isOpen]);
+  }, [isOpen, targetTab]);
 
   // Countdown timer
   useEffect(() => {
-    if (!isOpen || isCompleted || showExitWarning || !sponsor) return;
+    if (!isOpen || !sponsor || isCompleted || !isPlaying) return;
 
     if (secondsRemaining <= 0) {
       setIsCompleted(true);
+      setCanSkip(true);
       return;
     }
 
     const timer = setInterval(() => {
-      setSecondsRemaining((prev) => prev - 1);
+      setSecondsRemaining((prev) => {
+        if (prev <= 1) {
+          setIsCompleted(true);
+          setCanSkip(true);
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isOpen, secondsRemaining, isCompleted, showExitWarning, sponsor]);
+  }, [isOpen, sponsor, isCompleted, isPlaying, secondsRemaining]);
 
-  // Full Screen 60FPS Video Canvas Engine
+  // Full Screen 60FPS Video Canvas Engine (Simulates 1080p high-tech AdMob mobile commercial)
   useEffect(() => {
     if (!isOpen || !sponsor) return;
 
@@ -88,78 +104,81 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
     let frame = 0;
     const accent = sponsor.accentColor || '#6366f1';
 
-    const particles = Array.from({ length: 50 }, () => ({
+    // Particle field
+    const particles = Array.from({ length: 45 }, () => ({
       x: Math.random() * width,
       y: Math.random() * height,
-      size: Math.random() * 3.5 + 1,
-      speedX: (Math.random() - 0.5) * 1.8,
-      speedY: (Math.random() - 0.5) * 1.8,
+      size: Math.random() * 3 + 1,
+      speedX: (Math.random() - 0.5) * 1.5,
+      speedY: (Math.random() - 0.5) * 1.5,
       opacity: Math.random() * 0.7 + 0.3,
     }));
 
     const render = () => {
       frame++;
 
-      // Background cinematic dark glow
+      // Deep dark cinematic background with dynamic radial gradient
       const bgGrad = ctx.createRadialGradient(
         width / 2,
         height / 2,
-        60,
+        50,
         width / 2,
         height / 2,
-        Math.max(width, height) * 0.85
+        Math.max(width, height) * 0.8
       );
-      bgGrad.addColorStop(0, '#0a0f1d');
-      bgGrad.addColorStop(0.5, '#05070d');
+      bgGrad.addColorStop(0, '#090d16');
+      bgGrad.addColorStop(0.5, '#05070c');
       bgGrad.addColorStop(1, '#000000');
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // Aurora pulse in accent color
+      // Pulsing Aurora lights in sponsor accent color
       const pulse = Math.sin(frame * 0.03) * 0.5 + 0.5;
       const glowGrad = ctx.createRadialGradient(
-        width / 2 + Math.cos(frame * 0.02) * 100,
+        width / 2 + Math.cos(frame * 0.02) * 120,
         height / 2 + Math.sin(frame * 0.02) * 80,
-        25,
+        20,
         width / 2,
         height / 2,
-        width * 0.7
+        width * 0.65
       );
-      glowGrad.addColorStop(0, `${accent}${Math.round((0.3 + pulse * 0.15) * 255).toString(16).padStart(2, '0')}`);
-      glowGrad.addColorStop(0.65, `${accent}18`);
+      glowGrad.addColorStop(0, `${accent}${Math.round((0.25 + pulse * 0.15) * 255).toString(16).padStart(2, '0')}`);
+      glowGrad.addColorStop(0.6, `${accent}15`);
       glowGrad.addColorStop(1, 'transparent');
       ctx.fillStyle = glowGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // Rotating HUD Hologram rings
+      // Concentric rotating rings (Holographic Video HUD)
       ctx.save();
       ctx.translate(width / 2, height * 0.42);
 
+      // Ring 1
       ctx.beginPath();
-      ctx.arc(0, 0, 115 + Math.sin(frame * 0.05) * 8, 0, Math.PI * 2);
-      ctx.strokeStyle = `${accent}66`;
+      ctx.arc(0, 0, 110 + Math.sin(frame * 0.05) * 8, 0, Math.PI * 2);
+      ctx.strokeStyle = `${accent}55`;
       ctx.lineWidth = 2;
-      ctx.setLineDash([15, 10]);
+      ctx.setLineDash([12, 8]);
       ctx.stroke();
 
+      // Ring 2 (outer counter-rotating)
       ctx.beginPath();
-      ctx.arc(0, 0, 145, frame * 0.02, frame * 0.02 + Math.PI * 1.5);
+      ctx.arc(0, 0, 140, frame * 0.02, frame * 0.02 + Math.PI * 1.4);
       ctx.strokeStyle = '#ffffff25';
       ctx.lineWidth = 1.5;
-      ctx.setLineDash([22, 16]);
+      ctx.setLineDash([20, 15]);
       ctx.stroke();
 
-      // Audio waveform bars
-      const barCount = 32;
+      // Audio frequency wave bars at center bottom of stage
+      const barCount = 28;
       const barWidth = 4;
       const barGap = 6;
       const totalWaveWidth = barCount * (barWidth + barGap);
       ctx.setLineDash([]);
       for (let i = 0; i < barCount; i++) {
-        const barHeight = 15 + Math.abs(Math.sin(frame * 0.08 + i * 0.3)) * 45;
+        const barHeight = 15 + Math.abs(Math.sin(frame * 0.08 + i * 0.35)) * 40;
         const barX = -totalWaveWidth / 2 + i * (barWidth + barGap);
         const barGrad = ctx.createLinearGradient(0, 180, 0, 180 - barHeight);
-        barGrad.addColorStop(0, `${accent}aa`);
+        barGrad.addColorStop(0, `${accent}99`);
         barGrad.addColorStop(1, '#ffffff');
         ctx.fillStyle = barGrad;
         ctx.fillRect(barX, 180 - barHeight, barWidth, barHeight);
@@ -167,7 +186,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
 
       ctx.restore();
 
-      // Floating particles
+      // Render floating glow particles
       particles.forEach((p) => {
         p.x += p.speedX;
         p.y += p.speedY;
@@ -182,7 +201,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
         ctx.fill();
       });
 
-      // Video scanlines
+      // Video scanlines subtle texture
       ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
       for (let y = 0; y < height; y += 4) {
         ctx.fillRect(0, y, width, 1);
@@ -201,40 +220,35 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
 
   if (!isOpen || !sponsor) return null;
 
-  const totalDuration = sponsor.videoDurationSeconds;
   const progressPercent = Math.min(
     100,
     Math.round(((totalDuration - secondsRemaining) / totalDuration) * 100)
   );
 
-  const handleClaimReward = async () => {
-    if (!isCompleted || verifying || rewardGranted) return;
-    setVerifying(true);
-
-    const result = RewardedAdController.verifyAdCompletion(
-      adSessionId,
-      sponsor,
-      totalDuration,
-      settings.adRewardCoins
-    );
-
-    if (result.verified) {
-      await recordRewardedAdReward(settings.adRewardCoins, sponsor.brand);
-      setRewardGranted(true);
-      setTimeout(() => {
-        onClose();
-      }, 1500);
-    } else {
-      alert(result.error || 'Verification failed');
+  const handleFinishAndContinue = async () => {
+    if (!rewardClaimed && isCompleted) {
+      try {
+        await recordRewardedAdReward(rewardCoins, `Full Screen Page Ad (${targetTab})`);
+        setRewardClaimed(true);
+      } catch {}
     }
-    setVerifying(false);
+    onClose();
   };
 
-  const handleAttemptClose = () => {
-    if (isCompleted || rewardGranted) {
-      onClose();
-    } else {
-      setShowExitWarning(true);
+  const getPageTitle = (tab: string) => {
+    switch (tab) {
+      case 'home':
+        return 'Home';
+      case 'earn':
+        return 'Earn Tasks';
+      case 'wallet':
+        return 'Wallet';
+      case 'team':
+        return 'Team';
+      case 'profile':
+        return 'Profile';
+      default:
+        return `${tab.toUpperCase()}`;
     }
   };
 
@@ -251,21 +265,23 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
 
       {/* ================= 1. FULL-SCREEN ADMOB TOP HEADER ================= */}
       <header className="relative z-20 w-full px-4 pt-4 sm:pt-6 pb-3 flex items-center justify-between bg-gradient-to-b from-black/90 via-black/60 to-transparent">
+        {/* Left: Google AdMob Official Badging */}
         <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-900/90 border border-emerald-500/40 backdrop-blur-md shadow-lg shadow-black/50">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-0.5" />
-            <span className="text-emerald-400 font-black text-xs tracking-wider">Google AdMob</span>
+          <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-900/90 border border-amber-500/40 backdrop-blur-md shadow-lg shadow-black/50">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping mr-0.5" />
+            <span className="text-amber-400 font-black text-xs tracking-wider">AdMob</span>
             <span className="text-[10px] text-slate-400 font-semibold border-l border-slate-700 pl-1.5 hidden xs:inline">
-              Rewarded Video
+              Video Ad
             </span>
           </div>
 
-          <div className="px-2.5 py-1 rounded-full bg-slate-950/80 border border-slate-800 text-[10px] font-mono text-amber-300 flex items-center space-x-1 backdrop-blur-sm">
-            <Coins className="w-3 h-3 text-amber-400" />
-            <span>+{settings.adRewardCoins} Coins</span>
+          <div className="px-2.5 py-1 rounded-full bg-slate-950/80 border border-slate-800 text-[10px] font-mono text-emerald-400 flex items-center space-x-1 backdrop-blur-sm">
+            <Sparkles className="w-3 h-3 text-amber-300" />
+            <span>+{rewardCoins} Coins</span>
           </div>
         </div>
 
+        {/* Right: Sound Toggle + Real-time Skip / Close Button */}
         <div className="flex items-center space-x-2.5">
           <button
             onClick={() => setIsMuted(!isMuted)}
@@ -275,23 +291,23 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
             {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
           </button>
 
-          {!isCompleted ? (
-            <div className="px-3.5 py-1.5 rounded-full bg-black/80 border border-amber-500/30 text-[11px] font-mono text-amber-300 font-bold flex items-center space-x-1.5 backdrop-blur-md shadow-md">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              <span>Reward in {secondsRemaining}s</span>
-            </div>
-          ) : (
+          {canSkip ? (
             <button
-              onClick={handleClaimReward}
+              onClick={handleFinishAndContinue}
               className="px-4 py-1.5 rounded-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black flex items-center space-x-1.5 shadow-xl shadow-emerald-600/50 border border-emerald-400/50 transition-all active:scale-95 animate-pulse"
             >
-              <span>Claim +{settings.adRewardCoins} Coins</span>
+              <span>Skip Video</span>
               <ChevronRight className="w-4 h-4" />
             </button>
+          ) : (
+            <div className="px-3.5 py-1.5 rounded-full bg-black/80 border border-amber-500/30 text-[11px] font-mono text-amber-300 font-bold flex items-center space-x-1.5 backdrop-blur-md shadow-md">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span>Skip in {secondsRemaining}s</span>
+            </div>
           )}
 
           <button
-            onClick={handleAttemptClose}
+            onClick={handleFinishAndContinue}
             className="p-2 text-slate-400 hover:text-white rounded-full bg-slate-900/80 border border-slate-800 backdrop-blur-md transition-colors"
             title="Close Ad"
           >
@@ -302,6 +318,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
 
       {/* ================= 2. FULL-SCREEN VIDEO CENTER STAGE ================= */}
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 max-w-xl mx-auto w-full text-center space-y-4">
+        {/* Animated Brand Hologram Icon */}
         <div className="relative">
           <div
             className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl mx-auto flex items-center justify-center shadow-2xl text-white font-black text-4xl sm:text-5xl border-2 border-white/30 backdrop-blur-md transition-transform duration-500 hover:scale-105"
@@ -313,16 +330,18 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
             {sponsor.brand.charAt(0)}
           </div>
 
+          {/* Floating live indicator */}
           <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/90 border border-slate-700 text-[10px] font-bold text-slate-200 flex items-center space-x-1 shadow-md whitespace-nowrap">
             <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-            <span>Commercial Video 1080p HD</span>
+            <span>Commercial Video 1080p</span>
           </div>
         </div>
 
+        {/* Sponsor Titles & Descriptions */}
         <div className="space-y-1.5 max-w-md mx-auto pt-2">
           <div className="flex items-center justify-center space-x-2">
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-black text-[10px] uppercase tracking-wider shadow-sm">
-              Sponsored Video
+            <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider shadow-sm">
+              Featured Ad
             </span>
             <span className="text-xs font-bold text-slate-300">
               {sponsor.category}
@@ -345,13 +364,13 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
         {/* Video Scrubber Timeline */}
         <div className="w-full max-w-xs sm:max-w-sm pt-2 space-y-1.5">
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>0:{String(totalDuration - secondsRemaining).padStart(2, '0')}</span>
-            <span className="text-emerald-400 font-bold">0:{String(totalDuration).padStart(2, '0')}</span>
+            <span>0:0{totalDuration - secondsRemaining}</span>
+            <span className="text-amber-400 font-bold">0:0{totalDuration}</span>
           </div>
 
           <div className="w-full h-2 rounded-full bg-slate-800/80 border border-slate-700/60 overflow-hidden shadow-inner p-0.5">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-400 to-indigo-500 transition-all duration-1000 ease-linear shadow-lg shadow-emerald-500/50"
+              className="h-full rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-rose-500 transition-all duration-1000 ease-linear shadow-lg shadow-amber-500/50"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -387,6 +406,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
               </div>
             </div>
 
+            {/* Install / Explore CTA Button */}
             <a
               href={sponsor.actionUrl}
               target="_blank"
@@ -398,32 +418,35 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
             </a>
           </div>
 
-          {/* Claim / Completion Status Button */}
-          {isCompleted ? (
-            <button
-              onClick={handleClaimReward}
-              disabled={verifying || rewardGranted}
-              className={`w-full py-3 px-4 rounded-2xl text-white font-black text-xs shadow-xl transition-all flex items-center justify-center space-x-2 active:scale-95 ${
-                rewardGranted
-                  ? 'bg-emerald-600 shadow-emerald-600/40'
-                  : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600 hover:opacity-95 shadow-emerald-500/40'
-              }`}
-            >
-              <CheckCircle className="w-4 h-4 text-white" />
-              <span>
-                {rewardGranted
-                  ? 'Reward Credited to Wallet!'
-                  : `Claim Reward (+${settings.adRewardCoins} Coins)`}
+          {/* Action / Next Page Navigation Bar */}
+          <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 gap-2">
+            <div className="flex items-center space-x-1.5 text-[11px] text-slate-400">
+              <span>Next:</span>
+              <span className="px-2 py-0.5 rounded-md bg-slate-800 text-white font-bold">
+                {getPageTitle(targetTab)} Page
               </span>
-            </button>
-          ) : (
-            <div className="w-full py-2.5 px-4 rounded-2xl bg-slate-800/80 border border-slate-700/80 text-center text-xs text-slate-300 flex items-center justify-center space-x-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Watch full commercial to earn +{settings.adRewardCoins} Coins ({secondsRemaining}s)</span>
             </div>
-          )}
 
-          {/* Real Google AdMob IDs Tag */}
+            {isCompleted ? (
+              <button
+                onClick={handleFinishAndContinue}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-md shadow-emerald-600/30 flex items-center space-x-1.5 active:scale-95 transition-all"
+              >
+                <CheckCircle className="w-3.5 h-3.5" />
+                <span>Open {getPageTitle(targetTab)} (+{rewardCoins} Coins)</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleFinishAndContinue}
+                className="px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 font-bold text-xs flex items-center space-x-1 transition-colors"
+              >
+                <span>Continue</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Official Google AdMob Production Credentials Verification */}
           <div className="pt-1.5 border-t border-slate-800/60 flex items-center justify-between text-[9px] font-mono text-slate-500">
             <div className="truncate max-w-[200px]">
               <span className="text-slate-400">App ID:</span> {admobAppId}
@@ -434,35 +457,6 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({ isOpen, onClos
           </div>
         </div>
       </footer>
-
-      {/* Exit Warning Dialog */}
-      {showExitWarning && (
-        <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex items-center justify-center p-6 text-center animate-fadeIn">
-          <div className="max-w-sm w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 space-y-4 shadow-2xl">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto shadow-lg">
-              <AlertTriangle className="w-7 h-7" />
-            </div>
-            <h4 className="text-lg font-black text-white">Leave Video Ad Early?</h4>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              If you close the video ad now, you will lose the +{settings.adRewardCoins} coins reward.
-            </p>
-            <div className="space-y-2 pt-2">
-              <button
-                onClick={() => setShowExitWarning(false)}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-xs font-bold shadow-lg shadow-emerald-600/30"
-              >
-                Resume Video ({secondsRemaining}s remaining)
-              </button>
-              <button
-                onClick={onClose}
-                className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs font-semibold"
-              >
-                Close Without Reward
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

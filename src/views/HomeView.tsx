@@ -18,14 +18,19 @@ import {
   ArrowDownLeft,
   Megaphone,
   ShieldCheck,
+  Send,
+  ExternalLink,
+  Video,
+  ArrowRight,
 } from 'lucide-react';
 
 interface HomeViewProps {
   onOpenAd: () => void;
   onOpenAuth: () => void;
+  onOpenVideoCreator?: () => void;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
+export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth, onOpenVideoCreator }) => {
   const {
     user,
     settings,
@@ -146,6 +151,40 @@ export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
         </div>
       )}
 
+      {/* AI Social Promo Video Creator Banner */}
+      {onOpenVideoCreator && (
+        <div
+          onClick={onOpenVideoCreator}
+          className="cursor-pointer overflow-hidden rounded-3xl bg-gradient-to-r from-pink-950/90 via-purple-950/80 to-indigo-950/90 border border-pink-500/50 p-4 shadow-xl hover:border-pink-400 transition-all hover:scale-[1.01] active:scale-98 group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-pink-600 via-rose-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-pink-600/40 group-hover:scale-105 transition-transform">
+                <Video className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-pink-500/25 text-pink-300 border border-pink-500/40">
+                    VIRAL REELS & SHORTS
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-300">9:16 Video</span>
+                </div>
+                <h4 className="text-sm font-black text-white mt-0.5">App Ka AI Promo Video Download Karein 🎬</h4>
+                <p className="text-[11px] text-pink-200/80">Reels & YouTube Shorts par daal kar daily referral commission paayein</p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-black text-xs shadow-md shadow-pink-600/30 flex items-center space-x-1 shrink-0"
+            >
+              <span>Download</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Balance & Earnings Hero Card in 3D */}
       <div className="card-3d relative overflow-hidden rounded-3xl p-5 border-t border-purple-400/40 border-b border-indigo-950/80 shadow-2xl">
         {/* Ambient 3D Glow orb */}
@@ -242,6 +281,39 @@ export const HomeView: React.FC<HomeViewProps> = ({ onOpenAd, onOpenAuth }) => {
           </button>
         </div>
       )}
+
+      {/* Official Telegram Channel Mandatory Banner */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-sky-950 via-slate-900 to-blue-950 border border-sky-500/40 p-3 shadow-lg flex items-center justify-between">
+        <div className="flex items-center space-x-3 min-w-0">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center text-white shrink-0 shadow-md shadow-sky-500/30">
+            <Send className="w-5 h-5 -rotate-12" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center space-x-1.5">
+              <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                Official Telegram
+              </span>
+              <span className="text-[10px] text-amber-300 font-bold">Join Required</span>
+            </div>
+            <h4 className="text-xs font-black text-white truncate mt-0.5">
+              Join Smart Earn Official Telegram
+            </h4>
+            <p className="text-[10px] text-slate-300 truncate">
+              Daily Giveaway Codes, Loot Offers & Payment Proofs
+            </p>
+          </div>
+        </div>
+
+        <a
+          href={settings.telegramChannelUrl || 'https://t.me/+gUbcV1SSrDQzMDNl'}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-2 px-3 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-black text-[11px] shrink-0 shadow-md shadow-sky-500/30 flex items-center space-x-1 transition-all active:scale-95"
+        >
+          <span>Join</span>
+          <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
 
       {/* Interactive Promotional & Special Campaign Banners Carousel */}
       <PromoBannerCarousel onOpenAd={onOpenAd} onOpenAuth={onOpenAuth} />

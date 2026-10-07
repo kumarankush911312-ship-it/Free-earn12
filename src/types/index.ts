@@ -42,6 +42,8 @@ export interface Task {
   badge?: string;
   externalUrl?: string;
   verificationMethod: 'proof_link' | 'instant_timer' | 'app_install';
+  hasAd?: boolean;
+  adBonusCoins?: number;
   createdAt: string;
 }
 
@@ -66,6 +68,7 @@ export type TransactionType =
   | 'rewarded_ad'
   | 'task_reward'
   | 'referral_bonus'
+  | 'referral_reward'
   | 'daily_bonus'
   | 'withdrawal_request'
   | 'withdrawal_refund'
@@ -82,6 +85,8 @@ export interface Transaction {
   status: TransactionStatus;
   description: string;
   referenceId?: string;
+  referralUserId?: string;
+  processedAt?: string;
   createdAt: string;
 }
 
@@ -106,6 +111,68 @@ export interface Withdrawal {
   requestedAt: string;
   processedAt?: string;
   txnHash?: string;
+}
+
+export type ReferralStatus = 'pending' | 'verified' | 'reward_eligible' | 'rewarded' | 'rejected';
+export type QualificationStatus = 'pending_onboarding' | 'waiting_task' | 'qualified' | 'disqualified';
+export type ReferralRewardStatus = 'unrewarded' | 'pending_approval' | 'rewarded' | 'rejected';
+
+export interface Referral {
+  id: string;
+  referrerUserId: string;
+  referrerName?: string;
+  referrerMobile?: string;
+  referrerCode: string;
+  referredUserId: string;
+  referredUserName: string;
+  referredUserMobile: string;
+  status: ReferralStatus;
+  qualificationStatus: QualificationStatus;
+  rewardStatus: ReferralRewardStatus;
+  rewardAmountCoins: number;
+  rewardTransactionId?: string;
+  rejectionReason?: string;
+  fraudScore: number;
+  fraudReasons: string[];
+  deviceHash?: string;
+  ipAddress?: string;
+  createdAt: string;
+  qualifiedAt?: string;
+  rewardedAt?: string;
+  notes?: string;
+}
+
+export interface ReferralCampaign {
+  id: string;
+  name: string;
+  isActive: boolean;
+  referrerRewardCoins: number;
+  refereeJoinBonusCoins: number;
+  maxRewardsPerUser: number; // 0 = unlimited
+  qualificationRule: 'first_task_completed' | 'checkin_completed' | 'account_verified' | 'instant';
+  minTasksRequired: number;
+  rewardMode: 'auto_reward' | 'manual_approval';
+  startDate?: string;
+  endDate?: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FraudReview {
+  id: string;
+  referralId: string;
+  referrerUserId: string;
+  referredUserId: string;
+  riskScore: number;
+  reasons: string[];
+  status: 'pending_review' | 'approved' | 'rejected';
+  deviceHash?: string;
+  ipAddress?: string;
+  createdAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  adminNotes?: string;
 }
 
 export interface ReferralRecord {
@@ -143,6 +210,11 @@ export interface AppSettings {
   checkInRewards: number[];
   supportEmail: string;
   supportWhatsapp: string;
+  telegramChannelUrl?: string;
+  telegramMandatoryJoin?: boolean;
+  youtubeUrl?: string;
+  meeshoUrl?: string;
+  gpayUrl?: string;
   admobAppId?: string;
   admobRewardedUnitId?: string;
   admobBannerUnitId?: string;
@@ -153,6 +225,9 @@ export interface AppSettings {
   dailyCheckInEnabled: boolean;
   dailyBonusEnabled: boolean;
   videoAdsEnabled: boolean;
+  pageAdsEnabled?: boolean;
+  pageAdSkipSeconds?: number;
+  pageAdRewardCoins?: number;
   adCooldownSeconds: number;
   tasksEnabled: boolean;
   referralEnabled: boolean;

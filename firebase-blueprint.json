@@ -132,12 +132,93 @@
         "adRewardCoins": { "type": "number" },
         "supportEmail": { "type": "string", "maxLength": 120 }
       }
+    },
+    "Referral": {
+      "title": "Referral",
+      "description": "Attributed user referral record with lifecycle status and qualification tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "referrerUserId": { "type": "string", "maxLength": 128 },
+        "referrerName": { "type": "string", "maxLength": 80 },
+        "referrerMobile": { "type": "string", "maxLength": 20 },
+        "referrerCode": { "type": "string", "maxLength": 16 },
+        "referredUserId": { "type": "string", "maxLength": 128 },
+        "referredUserName": { "type": "string", "maxLength": 80 },
+        "referredUserMobile": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["pending", "verified", "reward_eligible", "rewarded", "rejected"] },
+        "qualificationStatus": { "type": "string", "enum": ["pending_onboarding", "waiting_task", "qualified", "disqualified"] },
+        "rewardStatus": { "type": "string", "enum": ["unrewarded", "pending_approval", "rewarded", "rejected"] },
+        "rewardAmountCoins": { "type": "number" },
+        "rewardTransactionId": { "type": "string", "maxLength": 128 },
+        "rejectionReason": { "type": "string", "maxLength": 300 },
+        "fraudScore": { "type": "number" },
+        "deviceHash": { "type": "string", "maxLength": 128 },
+        "ipAddress": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "qualifiedAt": { "type": "string", "maxLength": 40 },
+        "rewardedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "referrerUserId", "referrerCode", "referredUserId", "status", "createdAt"]
+    },
+    "ReferralCampaign": {
+      "title": "ReferralCampaign",
+      "description": "Configurable referral incentive program with qualification rules",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "isActive": { "type": "boolean" },
+        "referrerRewardCoins": { "type": "number" },
+        "refereeJoinBonusCoins": { "type": "number" },
+        "maxRewardsPerUser": { "type": "number" },
+        "qualificationRule": { "type": "string", "enum": ["first_task_completed", "checkin_completed", "account_verified", "instant"] },
+        "minTasksRequired": { "type": "number" },
+        "rewardMode": { "type": "string", "enum": ["auto_reward", "manual_approval"] },
+        "startDate": { "type": "string", "maxLength": 40 },
+        "endDate": { "type": "string", "maxLength": 40 },
+        "description": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "name", "isActive", "referrerRewardCoins", "refereeJoinBonusCoins", "qualificationRule"]
+    },
+    "FraudReview": {
+      "title": "FraudReview",
+      "description": "Audit flag for suspicious referral actions and velocity triggers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "referralId": { "type": "string", "maxLength": 128 },
+        "referrerUserId": { "type": "string", "maxLength": 128 },
+        "referredUserId": { "type": "string", "maxLength": 128 },
+        "riskScore": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending_review", "approved", "rejected"] },
+        "deviceHash": { "type": "string", "maxLength": 128 },
+        "ipAddress": { "type": "string", "maxLength": 64 },
+        "adminNotes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "reviewedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "referralId", "referrerUserId", "referredUserId", "riskScore", "status", "createdAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },
       "description": "User private profile and balance state"
+    },
+    "/referrals/{referralId}": {
+      "schema": { "$ref": "#/entities/Referral" },
+      "description": "Referral relationship and qualification records"
+    },
+    "/referral_campaigns/{campaignId}": {
+      "schema": { "$ref": "#/entities/ReferralCampaign" },
+      "description": "Referral campaign reward parameters and qualification rules"
+    },
+    "/fraud_reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/FraudReview" },
+      "description": "Flagged referral attempts queued for admin safety review"
     },
     "/tasks/{taskId}": {
       "schema": { "$ref": "#/entities/Task" },

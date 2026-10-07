@@ -1,0 +1,22 @@
+[
+  {
+    "id": "ref_1791290244111_k8mk0",
+    "referrerUserId": "user_demo_vikram",
+    "referrerName": "Vikram Singh",
+    "referrerMobile": "+91 98111 22334",
+    "referrerCode": "SE2JTZWF",
+    "referredUserId": "user_demo_amit",
+    "referredUserName": "Amit Patel",
+    "referredUserMobile": "+91 97234 56789",
+    "status": "rewarded",
+    "qualificationStatus": "waiting_task",
+    "rewardStatus": "rewarded",
+    "rewardAmountCoins": 100,
+    "fraudScore": 0,
+    "fraudReasons": [],
+    "ipAddress": "127.0.0.1",
+    "createdAt": "2026-10-06T12:37:24.111Z",
+    "rewardTransactionId": "txn_ref_reward_ref_1791290244111_k8mk0",
+    "rewardedAt": "2026-10-06T12:37:45.901Z"
+  }
+]

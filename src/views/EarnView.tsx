@@ -17,6 +17,9 @@ import {
   Search,
   AlertCircle,
   X,
+  PlayCircle,
+  Sparkles,
+  Gift,
 } from 'lucide-react';
 
 interface EarnViewProps {
@@ -39,9 +42,9 @@ export const EarnView: React.FC<EarnViewProps> = ({ onOpenAd, onOpenAuth }) => {
   const categories = [
     { id: 'all', label: 'All Tasks' },
     { id: 'app', label: 'App Installs' },
+    { id: 'daily', label: 'Video Ads & Daily' },
+    { id: 'social', label: 'Social Channels' },
     { id: 'survey', label: 'Surveys' },
-    { id: 'social', label: 'Social Media' },
-    { id: 'daily', label: 'Daily Reads' },
   ];
 
   const filteredTasks = tasks.filter((t) => {
@@ -271,6 +274,27 @@ export const EarnView: React.FC<EarnViewProps> = ({ onOpenAd, onOpenAuth }) => {
                         )}
                       </div>
                     </div>
+
+                    {/* Integrated Task Ad Booster Row */}
+                    <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-800/80">
+                      <div className="flex items-center space-x-1.5 text-purple-300 font-extrabold text-[10px]">
+                        <Sparkles className="w-3 h-3 text-purple-400" />
+                        <span>+{t.adBonusCoins || 25} Ad Booster Bonus</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenAd();
+                        }}
+                        className="px-2.5 py-1 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 text-[10px] font-extrabold flex items-center space-x-1 shadow-sm active:scale-95 transition-all"
+                        title="Watch Ad for Instant Coins"
+                      >
+                        <PlayCircle className="w-3 h-3 text-amber-300" />
+                        <span>Watch Ad</span>
+                      </button>
+                    </div>
                   </div>
                 );
               })
@@ -397,6 +421,37 @@ export const EarnView: React.FC<EarnViewProps> = ({ onOpenAd, onOpenAuth }) => {
                   </a>
                 </div>
               )}
+
+              {/* Sponsored Video Ad Booster in every task */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-950/80 via-indigo-950/80 to-slate-900 border border-purple-500/40 shadow-lg space-y-2.5">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="p-2 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-white flex items-center space-x-1.5">
+                        <span>Task Ad Bonus Booster</span>
+                        <span className="px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 text-[9px] font-black border border-amber-400/30">
+                          +{selectedTask.adBonusCoins || 25} Coins
+                        </span>
+                      </h4>
+                      <p className="text-[10px] text-slate-300 mt-0.5">
+                        Watch a quick 30s sponsored video ad to claim bonus coins & unlock fast-track approval!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onOpenAd()}
+                  className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-black flex items-center justify-center space-x-2 shadow-lg shadow-purple-950/60 active:scale-95 transition-all"
+                >
+                  <PlayCircle className="w-4 h-4 text-amber-300" />
+                  <span>Watch Sponsored Ad (+{selectedTask.adBonusCoins || 25} Coins)</span>
+                </button>
+              </div>
 
               {/* Submission Form */}
               <form onSubmit={handleSubmitProof} className="space-y-3 pt-2 border-t border-slate-800">

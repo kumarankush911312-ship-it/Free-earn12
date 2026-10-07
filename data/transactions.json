@@ -1,0 +1,42 @@
+[
+  {
+    "id": "txn_1791292311136_init",
+    "userId": "user_phone_9810012345",
+    "type": "bonus",
+    "amountCoins": 150,
+    "amountCurrency": 1.5,
+    "status": "completed",
+    "description": "Account Setup Welcome Bonus credited by Administrator",
+    "createdAt": "2026-10-06T13:11:51.136Z"
+  },
+  {
+    "id": "txn_init_bonus_ankush",
+    "userId": "user_phone_9113124207",
+    "type": "daily_bonus",
+    "amountCoins": 1000,
+    "amountCurrency": 10,
+    "status": "completed",
+    "description": "Welcome Bonus for Registered User +91 9113124207",
+    "createdAt": "2026-10-01T00:00:00.000Z"
+  },
+  {
+    "id": "txn_demo_rahul_referral",
+    "userId": "user_phone_9113124207",
+    "type": "referral_bonus",
+    "amountCoins": 100,
+    "amountCurrency": 1,
+    "status": "completed",
+    "description": "Referral bonus from friend Rahul Sharma",
+    "createdAt": "2026-09-28T12:00:00.000Z"
+  },
+  {
+    "id": "txn_demo_priya_referral",
+    "userId": "user_phone_9113124207",
+    "type": "referral_bonus",
+    "amountCoins": 100,
+    "amountCurrency": 1,
+    "status": "completed",
+    "description": "Referral bonus from friend Priya Verma",
+    "createdAt": "2026-09-25T16:00:00.000Z"
+  }
+]

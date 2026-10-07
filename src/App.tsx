@@ -19,6 +19,10 @@ import { AuthView } from './views/AuthView';
 import { AuthModal } from './components/AuthModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
 import { RewardedAdModal } from './components/RewardedAdModal';
+import { AdMobPageAdModal } from './components/AdMobPageAdModal';
+import { AdMobBanner } from './components/AdMobBanner';
+import { TelegramJoinModal } from './components/TelegramJoinModal';
+import { SocialVideoCreatorModal } from './components/SocialVideoCreatorModal';
 import { FaqModal, TermsModal, ContactSupportModal } from './components/SupportModals';
 import { ThreeDSplashScreen } from './components/ThreeDSplashScreen';
 import { LandingPageView } from './views/LandingPageView';
@@ -32,21 +36,11 @@ const MainAppContent: React.FC = () => {
       const hash = window.location.hash.toLowerCase();
       const path = window.location.pathname.toLowerCase();
       const search = window.location.search.toLowerCase();
-      if (
-        hash.includes('app') ||
-        hash.includes('wallet') ||
-        hash.includes('earn') ||
-        hash.includes('team') ||
-        hash.includes('profile') ||
-        search.includes('view=app')
-      ) {
-        return 'app';
-      }
       if (hash.includes('landing') || search.includes('view=landing')) {
         return 'landing';
       }
     } catch {}
-    return 'landing';
+    return 'app';
   });
 
   const [showSplash, setShowSplash] = useState<boolean>(false);
@@ -56,7 +50,52 @@ const MainAppContent: React.FC = () => {
   const [faqModalOpen, setFaqModalOpen] = useState(false);
   const [termsModalOpen, setTermsModalOpen] = useState(false);
   const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [socialVideoModalOpen, setSocialVideoModalOpen] = useState(false);
   const [inviteBanner, setInviteBanner] = useState<string | null>(null);
+
+  // Mandatory Telegram Join Modal state (App khulte hi turant samne dikhe)
+  const [telegramModalOpen, setTelegramModalOpen] = useState(() => {
+    try {
+      return localStorage.getItem('freeearn_telegram_joined') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  // Ensure modal opens when user accesses app if not yet confirmed
+  React.useEffect(() => {
+    try {
+      const hasJoined = localStorage.getItem('freeearn_telegram_joined') === 'true';
+      if (!hasJoined && activeTab !== 'admin') {
+        setTelegramModalOpen(true);
+      }
+    } catch {
+      setTelegramModalOpen(true);
+    }
+  }, [activeTab]);
+
+  // AdMob Page Transition Ad state (plays on every page/tab open)
+  const [pageAdOpen, setPageAdOpen] = useState(false);
+  const [pageAdTargetTab, setPageAdTargetTab] = useState<string>('home');
+  const prevTabRef = React.useRef<string>(activeTab);
+  const initialLoadRef = React.useRef<boolean>(true);
+
+  // Trigger AdMob ad whenever user opens/switches a page (does not overlap Telegram modal)
+  React.useEffect(() => {
+    if (viewMode === 'app' && user && activeTab !== 'admin') {
+      if (initialLoadRef.current) {
+        initialLoadRef.current = false;
+        if (!telegramModalOpen) {
+          setPageAdTargetTab(activeTab);
+          setPageAdOpen(true);
+        }
+      } else if (prevTabRef.current !== activeTab) {
+        prevTabRef.current = activeTab;
+        setPageAdTargetTab(activeTab);
+        setPageAdOpen(true);
+      }
+    }
+  }, [activeTab, viewMode, user, telegramModalOpen]);
 
   // Check URL for referral parameter (/r/CODE, ?ref=CODE, or #/?ref=CODE)
   React.useEffect(() => {
@@ -222,7 +261,15 @@ const MainAppContent: React.FC = () => {
 
   // If no user profile exists, require Register or Login first!
   if (!user) {
-    return <AuthView onBackToLanding={() => setViewMode('landing')} />;
+    return (
+      <>
+        <AuthView onBackToLanding={() => setViewMode('landing')} />
+        <TelegramJoinModal
+          isOpen={telegramModalOpen}
+          onClose={() => setTelegramModalOpen(false)}
+        />
+      </>
+    );
   }
 
   const renderActiveView = () => {
@@ -232,6 +279,7 @@ const MainAppContent: React.FC = () => {
           <HomeView
             onOpenAd={() => setAdModalOpen(true)}
             onOpenAuth={() => setAuthModalOpen(true)}
+            onOpenVideoCreator={() => setSocialVideoModalOpen(true)}
           />
         );
       case 'earn':
@@ -244,7 +292,12 @@ const MainAppContent: React.FC = () => {
       case 'wallet':
         return <WalletView onOpenAuth={() => setAuthModalOpen(true)} />;
       case 'team':
-        return <TeamView onOpenAuth={() => setAuthModalOpen(true)} />;
+        return (
+          <TeamView
+            onOpenAuth={() => setAuthModalOpen(true)}
+            onOpenVideoCreator={() => setSocialVideoModalOpen(true)}
+          />
+        );
       case 'profile':
         return (
           <ProfileView
@@ -300,6 +353,7 @@ const MainAppContent: React.FC = () => {
           onOpenNotifications={() => setNotifDrawerOpen(true)}
           onOpenAuth={() => setAuthModalOpen(true)}
           onViewLanding={() => setViewMode('landing')}
+          onOpenVideoCreator={() => setSocialVideoModalOpen(true)}
         />
 
         {/* View Content Area */}
@@ -319,6 +373,9 @@ const MainAppContent: React.FC = () => {
               </button>
             </div>
           )}
+          {/* Live Google AdMob Banner on Every Page (Ad Unit: ca-app-pub-7524191132114722/4622212147) */}
+          <AdMobBanner onOpenAd={() => setAdModalOpen(true)} className="mb-3.5" />
+
           {renderActiveView()}
         </main>
 
@@ -340,11 +397,27 @@ const MainAppContent: React.FC = () => {
         onClose={() => setNotifDrawerOpen(false)}
       />
       <RewardedAdModal isOpen={adModalOpen} onClose={() => setAdModalOpen(false)} />
+      {/* Mandatory Telegram Channel Join Modal (App Khulte Hi Samne Dikhe) */}
+      <TelegramJoinModal
+        isOpen={telegramModalOpen}
+        onClose={() => setTelegramModalOpen(false)}
+      />
+      {/* Full-Screen / Interstitial AdMob Ad on Every Page Open */}
+      <AdMobPageAdModal
+        isOpen={pageAdOpen}
+        targetTab={pageAdTargetTab}
+        onClose={() => setPageAdOpen(false)}
+      />
       <FaqModal isOpen={faqModalOpen} onClose={() => setFaqModalOpen(false)} />
       <TermsModal isOpen={termsModalOpen} onClose={() => setTermsModalOpen(false)} />
       <ContactSupportModal
         isOpen={contactModalOpen}
         onClose={() => setContactModalOpen(false)}
+      />
+      {/* AI Social Media Promo Video Creator & Downloader */}
+      <SocialVideoCreatorModal
+        isOpen={socialVideoModalOpen}
+        onClose={() => setSocialVideoModalOpen(false)}
       />
     </div>
   );
